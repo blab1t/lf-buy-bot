@@ -25,14 +25,15 @@ to paste into `.env`.
 1. A member presses **Create Request** (or runs `/request create`) and gets one
    modal straight away: what kind of thing it is (typed, not picked from a menu),
    a short title, a description, a budget (`100` or a range `50-100`) and how
-   many they want. A kind the bot does not know is filed under **Other** with the
-   buyer's own wording kept on the card. Account-shaped requests then pick the
-   capes the account should ideally have; every request finishes with the detail
-   fields for its kind (see below). If anything is rejected, **Edit again**
-   reopens the modal with everything still filled in.
+   many they want. A kind the bot does not know yet is created on the spot, so
+   anything can be requested. Account-shaped requests then pick the capes the
+   account should ideally have; every request fills the detail fields for its
+   kind (see below) and can then add **any other field** from the whole registry
+   through a menu before posting. If anything is rejected, **Edit again** reopens
+   the modal with everything still filled in.
 2. The bot opens a private request ticket and pings staff.
-3. Staff press **Accept**, name the request channel, and press **Finish**. The
-   request card is published on the board.
+3. Staff press **Accept** and name the request channel. The card is published
+   there immediately.
 4. Sellers press **Offer an account** (account + asking price) or **Sell at
    budget**. Each offer opens a seller ticket and waits for staff approval.
 5. An accepted offer becomes the request's **Best offer** and is announced on the
@@ -67,7 +68,7 @@ to paste into `.env`.
 | Other | platform, payment, incidents, other |
 
 Every kind also carries the shared basics: title, description, budget range and
-amount. Detail fields are paragraph boxes, so requirements can be written out in
+amount, plus any other field picked from the "add anything else" menu. Detail fields are paragraph boxes, so requirements can be written out in
 full. An amount of 0 or 1 is not shown on the card, and the **Best offer** line
 only appears once a seller's offer has been accepted. Staff can add more kinds
 with `/request category-create`.
