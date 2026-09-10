@@ -494,6 +494,7 @@ async function ensureExtraChannels(guild) {
   const channelPerms = require('./channelPerms');
   const created = [];
   const kept = [];
+  const moved = [];
   const parent = await ensureGeneralCategory(guild);
   for (const entry of config.EXTRA_CHANNELS) {
     const settingKey = `extra_channel_${entry.name}`;
@@ -518,15 +519,16 @@ async function ensureExtraChannels(guild) {
       });
       if (channel) created.push(channel);
     }
-    // An adopted channel keeps whatever category it already sits in; only a
-    // homeless one is tucked under General.
-    if (channel && parent && !channel.parentId) {
+    // Every community channel belongs under General, wherever it sat before.
+    // Only its parent changes: name, history and overwrites are untouched.
+    if (channel && parent && channel.parentId !== parent.id) {
       await channel.setParent(parent.id, { lockPermissions: false })
-        .catch((err) => console.error(`Could not move #${entry.name} into General:`, err.message));
+        .then(() => moved.push(channel))
+        .catch((err) => console.error(`Could not move #${entry.name} into ${config.CAT_GENERAL}:`, err.message));
     }
     if (channel) db.setSetting(settingKey, channel.id);
   }
-  return { created, kept, parent };
+  return { created, kept, moved, parent };
 }
 
 // `choices` comes from the guided /setup flow. Existing selected channels keep
@@ -583,7 +585,8 @@ async function runSetup(guild, choices) {
   if (extra.created.length || extra.kept.length) {
     summary.push(
       `Community channels${extra.parent ? ` under **${extra.parent.name}**` : ''}: ${[...extra.created, ...extra.kept].map((channel) => `${channel}`).join(' ')}`
-      + `${extra.kept.length ? ` (${extra.kept.length} already existed and were left untouched)` : ''}.`
+      + `${extra.kept.length ? ` (${extra.kept.length} already existed and kept their content)` : ''}`
+      + `${extra.moved.length ? `, ${extra.moved.length} moved into ${extra.parent.name}` : ''}.`
     );
   }
 

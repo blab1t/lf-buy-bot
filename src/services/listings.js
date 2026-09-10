@@ -27,8 +27,10 @@ const FIELDS = {
   niche: { key: 'niche', label: 'Niche / content', placeholder: 'gaming, monetized, English audience' },
   platform: { key: 'platform', label: 'Platform / game', placeholder: 'Steam, Valorant, Xbox gamertag' },
   payment: { key: 'payment', label: 'Payment methods you can use', placeholder: 'LTC, BTC, PayPal F&F' },
-  extra: { key: 'extra', label: 'Other requirements (one per line)', placeholder: 'One requirement per line', multiline: true },
+  extra: { key: 'extra', label: 'Other requirements (one per line)', placeholder: 'One requirement per line' },
 };
+// Every detail field is a paragraph box: requirements are sentences, not tags.
+for (const field of Object.values(FIELDS)) field.multiline = true;
 
 const FIELD_SETS = {
   mcacc: ['ranks', 'stats', 'incidents', 'payment', 'extra'],
@@ -62,11 +64,16 @@ function wantsCapes(category) {
   return CAPE_CATEGORIES.has(category);
 }
 
-// Everything the wizard collects before the per-category detail fields:
-// what exactly, a free description, a price range and how many are wanted.
+// Everything the wizard collects before the per-category detail fields. The
+// kind is typed rather than picked from a menu, and the budget is one range
+// field ("50-100") instead of two boxes.
 function buildBasicsModal(customId, values = {}) {
   const modal = new ModalBuilder().setCustomId(customId).setTitle('What are you looking for?');
   const rows = [
+    new TextInputBuilder().setCustomId('kind')
+      .setLabel('What kind of thing?').setStyle(TextInputStyle.Short)
+      .setRequired(true).setMaxLength(50)
+      .setPlaceholder(kindHint()),
     new TextInputBuilder().setCustomId('ign')
       .setLabel('Short title').setStyle(TextInputStyle.Short)
       .setRequired(true).setMaxLength(80)
@@ -75,24 +82,71 @@ function buildBasicsModal(customId, values = {}) {
       .setLabel('Describe it').setStyle(TextInputStyle.Paragraph)
       .setRequired(false).setMaxLength(1000)
       .setPlaceholder('Anything a seller should know before offering'),
-    new TextInputBuilder().setCustomId('price_min')
-      .setLabel('Budget from (USD)').setStyle(TextInputStyle.Short)
-      .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 50; blank = no lower bound'),
-    new TextInputBuilder().setCustomId('bin')
-      .setLabel('Budget up to (USD)').setStyle(TextInputStyle.Short)
-      .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100; blank = Offer'),
+    new TextInputBuilder().setCustomId('budget')
+      .setLabel('Budget in USD (a number or a range)').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(64).setPlaceholder('100, or 50-100; blank = open to offers'),
     new TextInputBuilder().setCustomId('amount')
       .setLabel('How many do you want?').setStyle(TextInputStyle.Short)
-      .setRequired(false).setMaxLength(40).setPlaceholder('1, or 10+ for a quicksell'),
+      .setRequired(false).setMaxLength(40).setPlaceholder('blank or 1 for a single one, 10+ for bulk'),
   ];
   for (const input of rows) {
     const value = values[input.data.custom_id];
-    if (value && String(value).trim() && String(value) !== 'Offer') {
+    if (value !== undefined && value !== null && String(value).trim() && String(value) !== 'Offer') {
       input.setValue(String(value).slice(0, input.data.max_length || 100));
     }
     modal.addComponents(new ActionRowBuilder().addComponents(input));
   }
   return modal;
+}
+
+// A few example kinds for the modal placeholder, which Discord caps at 100.
+function kindHint() {
+  const labels = proxyCategories.list().map((category) => category.label);
+  let hint = '';
+  for (const label of labels) {
+    const next = hint ? `${hint}, ${label}` : label;
+    if (next.length > 96) break;
+    hint = next;
+  }
+  return `${hint}...`.slice(0, 100);
+}
+
+// "100" or "50-100" or "$50 - $100" or "" -> { min, max } as stored prices.
+// Throws the same message as a single price when the text makes no sense.
+function parseBudgetRange(value) {
+  const text = String(value || '').trim();
+  if (!text || /^offer$/i.test(text)) return { min: 'Offer', max: 'Offer' };
+  const parts = text.split(/\s*(?:-|–|—|to|bis)\s*/i).filter((part) => part.trim());
+  if (parts.length > 2) {
+    throw new Error('Write the budget as one number (100) or one range (50-100).');
+  }
+  if (parts.length === 1) return { min: 'Offer', max: normalizeUsdPrice(parts[0]) };
+  const min = normalizeUsdPrice(parts[0]);
+  const max = normalizeUsdPrice(parts[1]);
+  if (usdToNumber(min) > usdToNumber(max)) {
+    throw new Error(`Your range runs backwards: **${min}** is above **${max}**.`);
+  }
+  return { min, max };
+}
+
+// What the buyer typed back into one editable field.
+function budgetInputValue(listing) {
+  const min = listing.info ? listing.info.price_min : null;
+  const max = listing.bin;
+  if (min && min !== 'Offer' && max && max !== 'Offer') return `${min} - ${max}`;
+  if (max && max !== 'Offer') return String(max);
+  if (min && min !== 'Offer') return String(min);
+  return '';
+}
+
+// Wanting one of something is the default, so only a real quantity is shown.
+// 0 is a legitimate answer ("just looking") and stays off the card too.
+function displayAmount(listing) {
+  const text = listing.info ? String(listing.info.amount || '').trim() : '';
+  if (!text) return null;
+  const asNumber = Number(text);
+  if (Number.isFinite(asNumber) && asNumber <= 1) return null;
+  return text;
 }
 
 // "$50 - $100", "$100" or "Offer", depending on which bounds exist.
@@ -257,16 +311,6 @@ function compareListings(a, b) {
   return (a.created_at || 0) - (b.created_at || 0);
 }
 
-function buildCategorySelectRow(customId, categories = proxyCategories.list()) {
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(customId)
-    .setPlaceholder('What are you looking for?')
-    .addOptions(
-      categories.map((category) => ({ label: category.label, value: category.key }))
-    );
-  return new ActionRowBuilder().addComponents(select);
-}
-
 // Modals cannot hold buttons, so the "hide it publicly" choice is a small
 // yes/no field right under the username instead of a separate step.
 function parseYesNo(value, fallback = false) {
@@ -294,25 +338,12 @@ function buildInfoModal(customId, values = {}, category = null) {
 }
 
 function buildPriceModal(customId, values = {}) {
-  const modal = new ModalBuilder().setCustomId(customId).setTitle('Budget');
-  const min = new TextInputBuilder()
-    .setCustomId('price_min').setLabel('Budget from (USD, optional)').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 50; blank = no lower bound');
-  const bin = new TextInputBuilder()
-    .setCustomId('bin').setLabel('Budget up to (USD)').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100 or $100 USD; blank = Offer');
+  const modal = new ModalBuilder().setCustomId(customId).setTitle('Best offer');
   const co = new TextInputBuilder()
-    .setCustomId('co').setLabel('Best offer so far (USD, optional)').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(64).setPlaceholder('blank unless a seller already offered');
-  const storedMin = values.info ? values.info.price_min : values.price_min;
-  if (storedMin && storedMin !== 'Offer') min.setValue(String(storedMin).slice(0, 64));
-  if (values.bin && values.bin !== 'Offer') bin.setValue(String(values.bin).slice(0, 64));
+    .setCustomId('co').setLabel('Best offer so far (USD)').setStyle(TextInputStyle.Short)
+    .setRequired(false).setMaxLength(64).setPlaceholder('blank resets it to no offer yet');
   if (values.co && values.co !== 'Offer') co.setValue(String(values.co).slice(0, 64));
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(min),
-    new ActionRowBuilder().addComponents(bin),
-    new ActionRowBuilder().addComponents(co)
-  );
+  modal.addComponents(new ActionRowBuilder().addComponents(co));
   return modal;
 }
 
@@ -334,51 +365,15 @@ function buildCapeSelectRows(customIdBase, selectedKeys = []) {
   });
 }
 
-function buildMetaModal(customId, listing) {
-  const ignInput = new TextInputBuilder()
-    .setCustomId('ign').setLabel('Wanted account (IGN or description)')
-    .setStyle(TextInputStyle.Short).setMaxLength(80);
-  if (listing.ign_hidden) {
-    ignInput
-      .setRequired(false)
-      .setPlaceholder('Leave blank to keep the hidden title unchanged');
-  } else {
-    ignInput.setRequired(true).setValue(listing.ign);
-  }
-  return new ModalBuilder()
-    .setCustomId(customId)
-    .setTitle('Title and category')
-    .addComponents(
-      new ActionRowBuilder().addComponents(ignInput),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('category')
-          .setLabel('Category')
-          .setPlaceholder(proxyCategories.list().map((category) => category.key).join(', ').slice(0, 100))
-          .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(16)
-          .setValue(listing.category)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('hidden')
-          .setLabel('Hide this title publicly? (yes/no)')
-          .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(5)
-          .setPlaceholder('no')
-          .setValue(listing.ign_hidden ? 'yes' : 'no')
-      )
-    );
-}
-
 function buildEditSelectRow(listingId) {
   const select = new StringSelectMenuBuilder()
     .setCustomId(`rv:editsel:${listingId}`)
     .setPlaceholder('What do you want to edit?')
     .addOptions(
-      { label: 'Title, description, budget, amount', value: 'basics', emoji: '📄' },
+      { label: 'Title, kind, description, budget, amount', value: 'basics', emoji: '📄' },
       { label: 'Requirements', value: 'info', emoji: '📝' },
-      { label: 'Budget and best offer', value: 'prices', emoji: '💶' },
-      { label: 'Wanted capes', value: 'capes', emoji: '🧥' },
-      { label: 'Title and category', value: 'meta', emoji: '🏷️' }
+      { label: 'Best offer', value: 'prices', emoji: '💶' },
+      { label: 'Wanted capes', value: 'capes', emoji: '🧥' }
     );
   return new ActionRowBuilder().addComponents(select);
 }
@@ -431,7 +426,7 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
   if (description) {
     headerTexts.push(new TextDisplayBuilder().setContent(description.slice(0, 1000)));
   }
-  const amount = listing.info ? String(listing.info.amount || '').trim() : '';
+  const amount = displayAmount(listing);
   if (amount) bullets.unshift(`- Wants **${amount}**`);
   if (bullets.length) {
     headerTexts.push(new TextDisplayBuilder().setContent(bullets.join('\n').slice(0, 2000)));
@@ -451,8 +446,12 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
   container.addSeparatorComponents(
     new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true)
   );
+  // The "best offer" line only exists once a seller has actually offered.
+  const offerLine = displayUsdPrice(listing.co) === 'Offer'
+    ? ''
+    : `\nBest offer: **${displayUsdPrice(listing.co)}**`;
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`Budget: **${displayBudget(listing)}**\nBest offer: **${displayUsdPrice(listing.co)}**`)
+    new TextDisplayBuilder().setContent(`Budget: **${displayBudget(listing)}**${offerLine}`)
   );
   if (mode === 'sold' || !listing.hide_proxy_label) {
     container.addSeparatorComponents(
@@ -513,8 +512,10 @@ function buildListingEmbed(listing, { imported = false } = {}) {
     .addFields(
       { name: 'Category', value: category ? category.label : listing.category, inline: true },
       { name: 'Budget', value: displayBudget(listing), inline: true },
-      { name: 'Best offer', value: displayUsdPrice(listing.co), inline: true },
     );
+  if (displayUsdPrice(listing.co) !== 'Offer') {
+    embed.addFields({ name: 'Best offer', value: displayUsdPrice(listing.co), inline: true });
+  }
   if (hasAvatar(listing)) embed.setThumbnail(avatarUrl(listing));
   for (const field of infoFieldsForCategory(listing.category)) {
     const value = listing.info ? String(listing.info[field.key] || '').trim() : '';
@@ -678,8 +679,8 @@ module.exports = {
   hasAvatar, wantsCapes, buildBasicsModal, displayBudget,
   FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
   formatNameChanges, nameChangeCount, threeCharClass, listingSortKey, compareListings,
-  buildCategorySelectRow, buildInfoModal, buildPriceModal, parseYesNo,
-  buildCapeSelectRows, buildMetaModal, buildEditSelectRow, buildSoldButtonRow, buildOfferAgainRow,
+  buildInfoModal, buildPriceModal, parseYesNo, parseBudgetRange, budgetInputValue, displayAmount,
+  buildCapeSelectRows, buildEditSelectRow, buildSoldButtonRow, buildOfferAgainRow,
   buildListingContainer, buildListingEmbed, listingPayload, renderPreview, renderPublished, stripSoldButtons,
   announceListingUpdate, priceChangeVerb, notifyWatchers, notifyOutbid,
 };

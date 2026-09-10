@@ -37,7 +37,6 @@ async function handleProxy(interaction) {
     const specifiedOwner = staff ? interaction.options.getUser('owner') : null;
     return proxyWizard.startWizard(interaction, {
       ownerId: specifiedOwner ? specifiedOwner.id : interaction.user.id,
-      ignHidden: interaction.options.getBoolean('ign-hidden') || false,
       // A member's own request always announces itself to staff for review.
       suppressProxyNotice: Boolean(staff && !specifiedOwner),
       hideProxyLabel: false,
@@ -46,7 +45,6 @@ async function handleProxy(interaction) {
   if (!(await requireStaffOrHigher(interaction))) return;
   if (sub === 'transfer') return transferProxy(interaction);
   if (sub === 'reassign') return reassignProxy(interaction);
-  if (sub === 'hide') return hideProxyIgn(interaction);
   if (sub === 'check') return checkProxyIgns(interaction);
   if (sub === 'publish') return publishStuckListings(interaction);
   if (sub === 'attach') return attachProxyToTicket(interaction);
@@ -553,60 +551,6 @@ async function checkProxyIgns(interaction) {
 
 // Hides or reveals the username on an existing listing. Channel names are
 // renamed too, otherwise a hidden IGN still leaks through the sidebar.
-async function hideProxyIgn(interaction) {
-  const ign = interaction.options.getString('ign').trim();
-  const row = db.findListingByIgn(ign);
-  if (!row) {
-    return interaction.reply({ content: `No request found for **${ign}**.`, flags: EPH });
-  }
-  const listing = db.parseListing(row);
-  const hidden = interaction.options.getBoolean('hidden') !== false;
-  const rename = interaction.options.getBoolean('rename-channels') !== false;
-  if (Boolean(listing.ign_hidden) === hidden) {
-    return interaction.reply({
-      content: `**${listing.ign}** is already ${hidden ? 'hidden' : 'visible'}.`,
-      flags: EPH,
-    });
-  }
-  await interaction.deferReply({ flags: EPH });
-  const updated = db.updateListing(listing.id, { ign_hidden: hidden ? 1 : 0 });
-  const fresh = db.parseListing(updated);
-
-  const renamed = [];
-  if (rename) {
-    const label = hidden
-      ? (fresh.category === 'minecon' ? listings.mineconChannelName(fresh) : 'hidden')
-      : fresh.ign.toLowerCase();
-    if (fresh.listing_channel_id) {
-      const channel = await interaction.guild.channels.fetch(fresh.listing_channel_id).catch(() => null);
-      if (channel) {
-        await channel.setName(tickets.sanitizeListingChannelName(label)).catch(() => {});
-        renamed.push(`<#${channel.id}>`);
-      }
-    }
-    if (fresh.ticket_channel_id) {
-      const ticketChannel = await interaction.guild.channels.fetch(fresh.ticket_channel_id).catch(() => null);
-      const ticket = db.getTicketByAnyChannel(fresh.ticket_channel_id);
-      if (ticketChannel) {
-        await ticketChannel.setName(tickets.sanitizeChannelName(`${label}-request${ticket ? `-${ticket.number}` : ''}`)).catch(() => {});
-        renamed.push(`<#${ticketChannel.id}>`);
-      }
-    }
-  }
-  // Re-render both cards and push the change to linked servers and the API.
-  await listings.renderPublished(interaction.client, updated);
-  await listings.renderPreview(interaction.client, updated);
-  sync.emitListingUpdate(updated);
-  logs.listing(interaction.client, hidden ? 'username hidden' : 'username revealed', listing, interaction.user.id);
-  return interaction.editReply({
-    content: `**${listing.ign}** is now shown as **${listings.displayIgn(fresh)}**${renamed.length ? `. Renamed ${renamed.join(' and ')}` : ''}.`,
-    allowedMentions: { parse: [] },
-  });
-}
-
-// Moves an existing proxy to a new owner: sends a close request to the old
-// proxy ticket and opens a fresh one owned by the new user, then repoints the
-// listing at both.
 async function reassignProxy(interaction) {
   const ign = interaction.options.getString('ign').trim();
   const newOwner = interaction.options.getUser('user');

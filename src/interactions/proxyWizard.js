@@ -2,37 +2,52 @@ const { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
 const state = require('../util/state');
 const db = require('../db');
 const config = require('../config');
-const mojang = require('../services/mojang');
-const blabit = require('../services/blabit');
 const capes = require('../services/capes');
 const listings = require('../services/listings');
 const tickets = require('../services/tickets');
 const proxyCategories = require('../services/proxyCategories');
-const setup = require('../services/setup');
 const sync = require('../services/sync');
 const logs = require('../services/logs');
 
 const EPH = MessageFlags.Ephemeral;
 
+// Buttons shown next to an error, so a retry reopens the modal with everything
+// the buyer already typed still in it.
+function retryRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('pw:ignretry').setLabel('Edit again').setStyle(ButtonStyle.Primary).setEmoji('📝'),
+    new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+  );
+}
+
+function detailsRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('pw:cont').setLabel('Add details').setStyle(ButtonStyle.Primary).setEmoji('📝'),
+    new ButtonBuilder().setCustomId('pw:ignretry').setLabel('Edit again').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+  );
+}
+
 async function startWizard(interaction, options = {}) {
+  const existing = state.get(interaction.user.id);
   state.set(interaction.user.id, {
-    step: 'category',
+    step: 'basics',
     ownerId: options.ownerId || interaction.user.id,
-    ignHidden: Boolean(options.ignHidden),
+    // Titles are always public; there is no hide option any more.
+    ignHidden: false,
     suppressProxyNotice: Boolean(options.suppressProxyNotice),
     hideProxyLabel: Boolean(options.hideProxyLabel),
-    // Set when importing an existing (third-party) ticket: the listing is bound
+    // Whatever was typed last time, so a reopened modal is never blank.
+    raw: (existing && existing.raw) || {},
+    capes: (existing && existing.capes) || [],
+    // Set when importing an existing (third-party) ticket: the request is bound
     // to that channel instead of a freshly created one.
     boundTicketChannelId: options.boundTicketChannelId || null,
     boundTicketId: options.boundTicketId || null,
-    // Optional existing public listing channel to reuse instead of creating one.
+    // Optional existing public request channel to reuse instead of creating one.
     boundListingChannelId: options.boundListingChannelId || null,
   });
-  await interaction.reply({
-    content: 'Let us post what you are looking for. First, pick what kind of thing it is.',
-    components: [listings.buildCategorySelectRow('pw:cat', setup.proxyCategoriesInDiscordOrder(interaction.guild))],
-    flags: EPH,
-  });
+  return interaction.showModal(listings.buildBasicsModal('pw:ign', state.get(interaction.user.id).raw));
 }
 
 function expired(interaction) {
@@ -59,38 +74,19 @@ function fitCapeLine(line, budget) {
 
 function capeStepPayload(data) {
   const line = capes.capeLine(data.capes);
-  const shownIgn = data.ignHidden ? 'Hidden' : data.ign;
-  const heading = data.uuid
-    ? (data.detected && data.detected.length
-      ? `Capes found on **${shownIgn}**:`
-      : `No capes found on **${shownIgn}**.`)
-    : `Which capes should **${shownIgn}** have?`;
-  const warning = data.uuid
-    ? ''
-    : '\n_This request does not name an existing account, so nothing was auto-detected._';
-  const templateNote = data.template
-    ? (data.templateApplied
-      ? '\n\n📋 Template from a linked server applied (capes, details and budget prefilled).'
-      : '\n\n📋 A linked server already knows this account. Press **Use template** to prefill its capes, details and prices.')
-    : '';
-  const instructions = '\n\nPick the capes you want the account to have (leave empty if you do not care), then press Continue.';
-  const fixed = `${heading}\n${warning}${templateNote}${instructions}`;
+  const heading = data.capes.length
+    ? `Capes **${data.ign}** should ideally have:`
+    : `Which capes should **${data.ign}** ideally have?`;
+  const instructions = '\n\nPick them with the menus, then press Continue. Leave it empty if capes do not matter.';
+  const fixed = `${heading}\n${instructions}`;
   return {
-    content: `${heading}\n${fitCapeLine(line, 1990 - fixed.length)}${warning}${templateNote}${instructions}`,
+    content: `${heading}\n${fitCapeLine(line, 1990 - fixed.length)}${instructions}`,
     components: [
       ...listings.buildCapeSelectRows('pw:capes', data.capes),
       new ActionRowBuilder().addComponents(
-        ...[
-          new ButtonBuilder().setCustomId('pw:cont').setLabel('Continue').setStyle(ButtonStyle.Primary),
-          ...(data.template && !data.templateApplied
-            ? [new ButtonBuilder().setCustomId('pw:tpl').setLabel('Use template').setStyle(ButtonStyle.Success).setEmoji('📋')]
-            : []),
-          new ButtonBuilder().setCustomId('pw:hide')
-            .setLabel(data.ignHidden ? 'Title: Hidden' : 'Hide title')
-            .setStyle(data.ignHidden ? ButtonStyle.Success : ButtonStyle.Secondary)
-            .setEmoji(data.ignHidden ? '🙈' : '👁️'),
-          new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary),
-        ],
+        new ButtonBuilder().setCustomId('pw:cont').setLabel('Continue').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('pw:ignretry').setLabel('Edit again').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
       ),
     ],
   };
@@ -162,10 +158,7 @@ async function createProxyTicket(interaction, data) {
     // Only the first proxy on a ticket names its channel. A second one joining
     // an existing ticket must not rename it out from under the first.
     if (primary) {
-      const label = data.ignHidden
-        ? (data.category === 'minecon' ? listings.mineconChannelName(db.parseListing(listing)) : 'hidden')
-        : data.ign;
-      const wanted = tickets.sanitizeChannelName(`${label}-request-${ticket.number}`);
+      const wanted = tickets.sanitizeChannelName(`${data.ign}-request-${ticket.number}`);
       if (channel.name !== wanted) {
         await channel.setName(wanted, 'Imported request ticket named after what it looks for').catch((err) => {
           console.error('Could not rename imported request ticket:', err.message);
@@ -174,9 +167,7 @@ async function createProxyTicket(interaction, data) {
     }
   } else {
     ({ channel, ticket } = await tickets.createTicketChannel(guild, {
-      baseName: `${data.ignHidden
-        ? `${data.category === 'minecon' ? listings.mineconChannelName(db.parseListing(listing)) : 'hidden'}-request`
-        : `${data.ign}-request`}`,
+      baseName: `${data.ign}-request`,
       categoryKey: 'proxy',
       type: 'proxy',
       creatorId: data.ownerId,
@@ -265,111 +256,64 @@ async function handle(interaction, parts) {
 
   const data = state.get(interaction.user.id);
 
-  if (action === 'cat') {
-    if (!data) return expired(interaction);
-    data.category = interaction.values[0];
-    if (!proxyCategories.resolve(data.category)) return expired(interaction);
-    return interaction.showModal(listings.buildBasicsModal('pw:ign', data));
-  }
-
   if (action === 'ignretry') {
     if (!data) return expired(interaction);
-    return interaction.showModal(listings.buildBasicsModal('pw:ign', data));
+    return interaction.showModal(listings.buildBasicsModal('pw:ign', data.raw));
   }
 
   if (action === 'ign') {
     if (!data) return expired(interaction);
-    const ign = interaction.fields.getTextInputValue('ign').trim();
-    const retryRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('pw:ignretry').setLabel('Enter it again').setStyle(ButtonStyle.Primary).setEmoji('📝'),
-      new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
-    );
-    if (!ign) {
+    // Store the raw input first: any error below reopens the modal with it.
+    data.raw = {
+      kind: interaction.fields.getTextInputValue('kind').trim(),
+      ign: interaction.fields.getTextInputValue('ign').trim(),
+      description: interaction.fields.getTextInputValue('description').trim(),
+      budget: interaction.fields.getTextInputValue('budget').trim(),
+      amount: interaction.fields.getTextInputValue('amount').trim(),
+    };
+    if (!data.raw.ign) {
       return interaction.reply({
         content: 'Write a short title, for example `3-letter OG name` or `Migrator cape account`.',
-        components: [retryRow],
+        components: [retryRow()],
         flags: EPH,
       });
     }
-    // The price range, the description and the amount all live in this modal.
-    data.basics = {};
+    let budget;
     try {
-      data.basics.price_min = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
-      data.bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
+      budget = listings.parseBudgetRange(data.raw.budget);
     } catch (err) {
-      return interaction.reply({ content: err.message, components: [retryRow], flags: EPH });
+      return interaction.reply({ content: err.message, components: [retryRow()], flags: EPH });
     }
-    const minValue = listings.usdToNumber(data.basics.price_min);
-    const maxValue = listings.usdToNumber(data.bin);
-    if (minValue !== null && maxValue !== null && minValue > maxValue) {
-      return interaction.reply({
-        content: `Your lower bound (**${data.basics.price_min}**) is above your upper bound (**${data.bin}**). Enter the range the other way round.`,
-        components: [retryRow],
-        flags: EPH,
-      });
-    }
-    data.basics.description = interaction.fields.getTextInputValue('description').trim().slice(0, 1000);
-    data.basics.amount = interaction.fields.getTextInputValue('amount').trim().slice(0, 40);
+    // An unknown kind is not a dead end: it is filed under Other and the words
+    // the buyer used are kept on the card.
+    const category = proxyCategories.resolve(data.raw.kind);
+    const fallback = !category;
+    data.category = category ? category.key : 'other';
+    data.ign = data.raw.ign;
+    data.uuid = null;
+    data.bin = budget.max;
     // A best offer only exists once a seller actually offers something.
     data.co = 'Offer';
+    data.basics = {
+      price_min: budget.min,
+      description: fallback && data.raw.kind
+        ? `${data.raw.kind}${data.raw.description ? `\n${data.raw.description}` : ''}`.slice(0, 1000)
+        : data.raw.description.slice(0, 1000),
+      amount: data.raw.amount.slice(0, 40),
+    };
+    const kindLabel = (proxyCategories.resolve(data.category) || {}).label || data.category;
+    const kindNote = fallback
+      ? `I do not have a **${data.raw.kind}** section, so this goes under **${kindLabel}** and your wording stays on the card.\n`
+      : '';
     await interaction.deferReply({ flags: EPH });
-    data.ign = ign;
-    data.uuid = null;
-    // A request may name one exact account or describe a whole class of them.
-    // Only the first kind can be resolved on Mojang, and a failed lookup is
-    // never fatal here: the request is about an account the buyer does not own.
-    if (listings.wantsCapes(data.category) && mojang.isValidIgn(ign)) {
-      try {
-        const resolved = await mojang.resolveUser(ign);
-        if (resolved) {
-          data.uuid = resolved.uuid;
-          data.ign = resolved.name;
-        }
-      } catch (err) {
-        console.error('Mojang lookup failed:', err.message);
-      }
-    }
-    let capeUrl = null;
-    if (data.uuid) {
-      const textures = await mojang.getProfileTextures(data.uuid).catch(() => null);
-      if (textures) capeUrl = textures.capeUrl;
-    }
-    data.detected = data.uuid ? await capes.detectCapes(data.uuid, capeUrl) : [];
-    data.capes = [...data.detected];
-    data.prefill = data.uuid && data.category === 'mcacc' ? await blabit.getPrefill(data.uuid) : null;
-    // Offer the existing listing from a linked server as a starting point.
-    data.template = data.uuid ? sync.findTemplate(data.uuid) : null;
-    data.templateApplied = false;
-    // Capes only matter for account-shaped requests. A Discord account or a
-    // YouTube channel skips straight to its own detail fields.
     if (!listings.wantsCapes(data.category)) {
       return interaction.editReply({
-        content: `Saved. Last step: the details for **${(proxyCategories.resolve(data.category) || {}).label || data.category}**.`,
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('pw:cont').setLabel('Add details').setStyle(ButtonStyle.Primary).setEmoji('📝'),
-            new ButtonBuilder().setCustomId('pw:hide')
-              .setLabel(data.ignHidden ? 'Title: Hidden' : 'Hide title')
-              .setStyle(data.ignHidden ? ButtonStyle.Success : ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
-          ),
-        ],
+        content: `${kindNote}Saved. Last step: the details for **${kindLabel}**.`,
+        components: [detailsRow()],
       });
     }
+    if (kindNote) await interaction.followUp({ content: kindNote, flags: EPH }).catch(() => {});
     return interaction.editReply(capeStepPayload(data));
-  }
-
-  if (action === 'tpl') {
-    if (!data || !data.template) return expired(interaction);
-    const template = data.template.data || {};
-    if (Array.isArray(template.capes) && template.capes.length) data.capes = [...template.capes];
-    if (template.info && typeof template.info === 'object') data.info = { ...template.info };
-    if (template.co) data.co = template.co;
-    if (template.bin) data.bin = template.bin;
-    if (template.ign_hidden) data.ignHidden = true;
-    if (template.name_suggestion && !data.prefill) data.prefill = { nameSuggestion: template.name_suggestion };
-    data.templateApplied = true;
-    return interaction.update(capeStepPayload(data));
   }
 
   if (action === 'capes') {
@@ -379,39 +323,15 @@ async function handle(interaction, parts) {
     return interaction.update(capeStepPayload(data));
   }
 
-  if (action === 'hide') {
-    if (!data) return expired(interaction);
-    data.ignHidden = !data.ignHidden;
-    if (!listings.wantsCapes(data.category)) {
-      return interaction.update({
-        content: `Title is now **${data.ignHidden ? 'hidden' : 'visible'}** on the public card. Press Add details to continue.`,
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('pw:cont').setLabel('Add details').setStyle(ButtonStyle.Primary).setEmoji('📝'),
-            new ButtonBuilder().setCustomId('pw:hide')
-              .setLabel(data.ignHidden ? 'Title: Hidden' : 'Hide title')
-              .setStyle(data.ignHidden ? ButtonStyle.Success : ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
-          ),
-        ],
-      });
-    }
-    return interaction.update(capeStepPayload(data));
-  }
-
   if (action === 'cont') {
     if (!data || !data.ign) return expired(interaction);
     if (data.category === 'minecon' && !listings.mineconYear({ capes: data.capes })) {
       return interaction.reply({
-        content: 'Select the Minecon cape you are after so I can derive the year for its channel name.',
+        content: 'Pick the Minecon cape you are after so I can derive the year for its channel name.',
         flags: EPH,
       });
     }
-    const prefillValues = data.info || {
-      ranks: data.prefill ? data.prefill.ranksNwl : '',
-      stats: data.prefill ? data.prefill.stats : '',
-    };
-    return interaction.showModal(listings.buildInfoModal('pw:info', prefillValues, data.category));
+    return interaction.showModal(listings.buildInfoModal('pw:info', data.info || {}, data.category));
   }
 
   if (action === 'info') {
@@ -430,7 +350,7 @@ async function handle(interaction, parts) {
     const open = db.openTicketsForUser(interaction.user.id);
     if (!open.length) return finishProxy(interaction, data);
     return interaction.editReply({
-      content: `Where should the request for **${data.ignHidden ? 'Hidden' : data.ign}** go?`,
+      content: `Where should the request for **${data.ign}** go?`,
       components: [tickets.ticketPickerRow('pw:where', interaction.guild, open)],
     });
   }

@@ -22,11 +22,14 @@ to paste into `.env`.
 
 ## How a deal works
 
-1. A member presses **Create Request** (or runs `/request create`) and picks what
-   kind of thing they want, then fills one modal with a short title, a free
-   description, a **budget range** (from / up to) and how many they want.
-   Account-shaped requests then pick the capes they want; every request finally
-   fills the detail fields for its kind (see below).
+1. A member presses **Create Request** (or runs `/request create`) and gets one
+   modal straight away: what kind of thing it is (typed, not picked from a menu),
+   a short title, a description, a budget (`100` or a range `50-100`) and how
+   many they want. A kind the bot does not know is filed under **Other** with the
+   buyer's own wording kept on the card. Account-shaped requests then pick the
+   capes the account should ideally have; every request finishes with the detail
+   fields for its kind (see below). If anything is rejected, **Edit again**
+   reopens the modal with everything still filled in.
 2. The bot opens a private request ticket and pings staff.
 3. Staff press **Accept**, name the request channel, and press **Finish**. The
    request card is published on the board.
@@ -43,7 +46,7 @@ to paste into `.env`.
 - Channels: `verify`, `tickets`, `requests`, `vouches-<count>`, plus the community
   channels `announcements`, `partners`, `telegram`, `chat`, `botspam`, `giveaways`
   and `dndw`. Channels that already exist are adopted, never recreated or wiped.
-- Categories: **General** (holding the community channels), Request Tickets,
+- Categories: **General** (the community channels are moved under it), Request Tickets,
   Seller Offers, Support Tickets, Fulfilled Requests, and one per request kind.
 
 ## What can be requested
@@ -64,14 +67,17 @@ to paste into `.env`.
 | Other | platform, payment, incidents, other |
 
 Every kind also carries the shared basics: title, description, budget range and
-amount. Staff can add more kinds with `/request category-create`.
+amount. Detail fields are paragraph boxes, so requirements can be written out in
+full. An amount of 0 or 1 is not shown on the card, and the **Best offer** line
+only appears once a seller's offer has been accepted. Staff can add more kinds
+with `/request category-create`.
 
 ## Commands
 
 | Command | Access | What it does |
 |---|---|---|
 | `/request create` | everyone | Post what account you are looking for. |
-| `/request edit`, `delete`, `hide`, `reassign`, `restore`, `refresh`, `publish`, `check`, `attach`, `transfer` | staff | Manage requests on the board. |
+| `/request edit`, `delete`, `reassign`, `restore`, `refresh`, `publish`, `check`, `attach`, `transfer` | staff | Manage requests on the board. |
 | `/request category-*`, `sold-category`, `organize` | staff | Manage request categories and channel layout. |
 | `/offer list/set/clear/add/remove/refresh` | staff | Manage seller offers on a request. |
 | `/budget` | staff | Change a request's budget. |

@@ -10,7 +10,6 @@ const definitions = [
     .setDescription('Post and manage account requests')
     .addSubcommand((sub) => sub.setName('create').setDescription('Post what account you are looking for')
       .addUserOption((o) => o.setName('owner').setDescription('Staff only: post on behalf of this buyer'))
-      .addBooleanOption((o) => o.setName('ign-hidden').setDescription('Show Hidden instead of the title publicly'))
     )
     .addSubcommand((sub) =>
       sub.setName('edit').setDescription('Edit an existing request')
@@ -28,18 +27,11 @@ const definitions = [
         .addStringOption((o) => o.setName('ign').setDescription('Request title (defaults to the channel name)'))
         .addStringOption((o) => o.setName('category').setDescription('Existing category name or key (defaults to Other)'))
         .addUserOption((o) => o.setName('owner').setDescription('Buyer, only needed if it cannot be inferred from the ticket'))
-        .addBooleanOption((o) => o.setName('ign-hidden').setDescription('Show Hidden instead of the title publicly'))
-    )
+      )
     .addSubcommand((sub) =>
       sub.setName('reassign').setDescription('Move a request to a different buyer: close-requests the old ticket and opens a new one')
         .addStringOption((o) => o.setName('ign').setDescription('Title of the request').setRequired(true))
         .addUserOption((o) => o.setName('user').setDescription('New buyer').setRequired(true))
-    )
-    .addSubcommand((sub) =>
-      sub.setName('hide').setDescription('Hide (or reveal) the title on an existing request')
-        .addStringOption((o) => o.setName('ign').setDescription('Request title (or the account it names)').setRequired(true))
-        .addBooleanOption((o) => o.setName('hidden').setDescription('True hides the title, false reveals it (default: true)'))
-        .addBooleanOption((o) => o.setName('rename-channels').setDescription('Also rename the listing/ticket channels (default: true)'))
     )
     .addSubcommand((sub) => sub.setName('category-create').setDescription('Create a custom request category')
       .addStringOption((o) => o.setName('name').setDescription('Category name').setRequired(true).setMaxLength(50))

@@ -7,7 +7,6 @@ const config = require('../config');
 const { requireStaffOrHigher } = require('../util/perms');
 const listings = require('../services/listings');
 const tickets = require('../services/tickets');
-const mojang = require('../services/mojang');
 const capes = require('../services/capes');
 const setup = require('../services/setup');
 const proxyCategories = require('../services/proxyCategories');
@@ -49,7 +48,7 @@ async function listingChannelOverwrites(guild) {
 
 // Editing actions the buyer may run on their own request while it is still
 // unpublished. Accepting, denying, publishing and deleting stay staff-only.
-const OWNER_EDITABLE = new Set(['edit', 'editsel', 'editbasics', 'editinfo', 'editprice', 'editcapes', 'editmeta']);
+const OWNER_EDITABLE = new Set(['edit', 'editsel', 'editbasics', 'editinfo', 'editprice', 'editcapes']);
 
 async function handle(interaction, parts) {
   const action = parts[1];
@@ -282,16 +281,15 @@ async function handle(interaction, parts) {
     const choice = interaction.values[0];
     if (choice === 'basics') {
       return interaction.showModal(listings.buildBasicsModal(`rv:editbasics:${listing.id}`, {
+        kind: (proxyCategories.resolve(listing.category) || {}).label || listing.category,
         ign: listing.ign,
-        bin: listing.bin,
         description: listing.info.description,
-        price_min: listing.info.price_min,
+        budget: listings.budgetInputValue(listing),
         amount: listing.info.amount,
       }));
     }
     if (choice === 'info') return interaction.showModal(listings.buildInfoModal(`rv:editinfo:${listing.id}`, listing.info, listing.category));
     if (choice === 'prices') return interaction.showModal(listings.buildPriceModal(`rv:editprice:${listing.id}`, listing));
-    if (choice === 'meta') return interaction.showModal(listings.buildMetaModal(`rv:editmeta:${listing.id}`, listing));
     if (choice === 'capes') {
       return interaction.reply({
         content: 'Pick the new cape set:',
@@ -305,29 +303,31 @@ async function handle(interaction, parts) {
   if (action === 'editbasics') {
     const ign = interaction.fields.getTextInputValue('ign').trim();
     if (!ign) return interaction.reply({ content: 'The title cannot be empty.', flags: EPH });
-    let priceMin;
-    let bin;
+    let budget;
     try {
-      priceMin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
-      bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
+      budget = listings.parseBudgetRange(interaction.fields.getTextInputValue('budget'));
     } catch (err) {
       return interaction.reply({ content: err.message, flags: EPH });
     }
-    const minValue = listings.usdToNumber(priceMin);
-    const maxValue = listings.usdToNumber(bin);
-    if (minValue !== null && maxValue !== null && minValue > maxValue) {
-      return interaction.reply({ content: 'The lower bound of the budget is above its upper bound.', flags: EPH });
-    }
+    const typedKind = interaction.fields.getTextInputValue('kind').trim();
+    const category = proxyCategories.resolve(typedKind);
     await interaction.deferReply({ flags: EPH });
     const info = {
       ...listing.info,
-      price_min: priceMin,
+      price_min: budget.min,
       description: interaction.fields.getTextInputValue('description').trim().slice(0, 1000),
       amount: interaction.fields.getTextInputValue('amount').trim().slice(0, 40),
     };
-    db.updateListing(listing.id, { ign, bin, info });
+    db.updateListing(listing.id, {
+      ign, bin: budget.max, info, ...(category ? { category: category.key } : {}),
+    });
+    if (category && category.key !== listing.category) {
+      await setup.organizeListing(interaction.guild, db.getListing(listing.id)).catch(() => {});
+    }
     await rerender(interaction.client, listing.id);
-    return interaction.editReply({ content: 'Title, description, budget and amount updated.' });
+    return interaction.editReply({
+      content: `Request updated.${category ? '' : `\nI have no **${typedKind}** section, so the kind stayed **${(proxyCategories.resolve(listing.category) || {}).label || listing.category}**.`}`,
+    });
   }
 
   if (action === 'editinfo') {
@@ -347,23 +347,14 @@ async function handle(interaction, parts) {
   if (action === 'editprice') {
     await interaction.deferReply({ flags: EPH });
     let co;
-    let bin;
-    let priceMin;
     try {
-      priceMin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
       co = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('co'));
-      bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
     } catch (err) {
       return interaction.editReply(err.message);
     }
-    const minValue = listings.usdToNumber(priceMin);
-    const maxValue = listings.usdToNumber(bin);
-    if (minValue !== null && maxValue !== null && minValue > maxValue) {
-      return interaction.editReply('The lower bound of the budget is above its upper bound.');
-    }
-    db.updateListing(listing.id, { co, bin, info: { ...listing.info, price_min: priceMin } });
+    db.updateListing(listing.id, { co });
     await rerender(interaction.client, listing.id);
-    return interaction.editReply({ content: 'Budget updated.' });
+    return interaction.editReply({ content: 'Best offer updated.' });
   }
 
   if (action === 'editcapes') {
@@ -376,45 +367,6 @@ async function handle(interaction, parts) {
       content: 'Capes updated.',
       components: listings.buildCapeSelectRows(`rv:editcapes:${listing.id}`, newCapes),
     });
-  }
-
-  if (action === 'editmeta') {
-    const requestedIgn = interaction.fields.getTextInputValue('ign').trim();
-    const ign = requestedIgn || (listing.ign_hidden ? listing.ign : '');
-    const categoryInput = interaction.fields.getTextInputValue('category').trim();
-    const category = proxyCategories.resolve(categoryInput);
-    if (!ign) {
-      return interaction.reply({ content: 'Write what this request is looking for.', flags: EPH });
-    }
-    if (!category) {
-      return interaction.reply({
-        content: `Unknown category. Available categories: ${proxyCategories.list().map((entry) => entry.label).join(', ')}`,
-        flags: EPH,
-      });
-    }
-    await interaction.deferReply({ flags: EPH });
-    let uuid = listing.uuid;
-    if (ign.toLowerCase() !== listing.ign.toLowerCase()) {
-      // A request title may be a description rather than a real account, so an
-      // unresolvable name only means "no player head", never a rejected edit.
-      uuid = null;
-      if (mojang.isValidIgn(ign)) {
-        const resolved = await mojang.resolveUser(ign).catch(() => null);
-        uuid = resolved ? resolved.uuid : null;
-      }
-    }
-    // The same modal carries the hide choice.
-    let hiddenChoice = '';
-    try {
-      hiddenChoice = interaction.fields.getTextInputValue('hidden');
-    } catch (err) {
-      hiddenChoice = '';
-    }
-    const ignHidden = listings.parseYesNo(hiddenChoice, Boolean(listing.ign_hidden));
-    db.updateListing(listing.id, { ign, category: category.key, uuid, ign_hidden: ignHidden ? 1 : 0 });
-    await setup.organizeListing(interaction.guild, db.getListing(listing.id));
-    await rerender(interaction.client, listing.id);
-    return interaction.editReply({ content: 'Title and category updated.' });
   }
 
   if (action === 'delyes') {

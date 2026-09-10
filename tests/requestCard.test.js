@@ -28,7 +28,9 @@ const request = {
 const text = JSON.stringify(listings.buildListingContainer(request, 'published').toJSON());
 
 assert.ok(text.includes('WANTED'), 'published card must be labelled WANTED');
-assert.ok(text.includes('Best offer'), 'published card must show the best seller offer');
+assert.ok(!text.includes('Best offer'), 'no best-offer line until a seller actually offers');
+const offered = JSON.stringify(listings.buildListingContainer({ ...request, co: '$80' }, 'published').toJSON());
+assert.ok(offered.includes('Best offer'), 'an accepted offer does show up');
 assert.ok(text.includes('Clean 3cn'), 'the description belongs on the card');
 assert.ok(text.includes('Wants **2**'), 'the wanted amount belongs on the card');
 assert.ok(!text.includes('PROXY') && !text.includes('BIN:'), 'no proxy/BIN wording may survive');
@@ -38,6 +40,24 @@ assert.strictEqual(listings.displayBudget(request), '$50 - $100');
 assert.strictEqual(listings.displayBudget({ ...request, info: {} }), '$100');
 assert.strictEqual(listings.displayBudget({ bin: 'Offer', info: { price_min: '$50' } }), 'from $50');
 assert.strictEqual(listings.displayBudget({ bin: 'Offer', info: {} }), 'Offer');
+
+// A budget is typed as one number or one range.
+assert.deepStrictEqual(listings.parseBudgetRange('50-100'), { min: '$50', max: '$100' });
+assert.deepStrictEqual(listings.parseBudgetRange('100'), { min: 'Offer', max: '$100' });
+assert.deepStrictEqual(listings.parseBudgetRange(''), { min: 'Offer', max: 'Offer' });
+assert.throws(() => listings.parseBudgetRange('100-50'), /runs backwards/);
+assert.throws(() => listings.parseBudgetRange('a lot'));
+assert.strictEqual(listings.budgetInputValue(request), '$50 - $100');
+
+// Wanting one (or none) is the default and stays off the card.
+assert.strictEqual(listings.displayAmount(request), '2');
+assert.strictEqual(listings.displayAmount({ info: { amount: '1' } }), null);
+assert.strictEqual(listings.displayAmount({ info: { amount: '0' } }), null);
+assert.strictEqual(listings.displayAmount({ info: {} }), null);
+assert.strictEqual(listings.displayAmount({ info: { amount: '10+' } }), '10+');
+
+// Requirements are paragraph boxes, so a seller gets whole sentences.
+assert.ok(Object.values(listings.FIELDS).every((field) => field.multiline), 'detail fields are multiline');
 
 // Fields follow the kind of thing wanted, and never exceed one Discord modal.
 for (const [category, keys] of Object.entries(listings.FIELD_SETS)) {
