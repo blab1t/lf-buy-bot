@@ -1,0 +1,20 @@
+{
+  "name": "lf-buy-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discord wanted-board bot: members post the Minecraft account they are looking for, staff approve, sellers offer.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node tests/ticketItems.test.js && node tests/requestCard.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "discord.js": "^14.26.4",
+    "dotenv": "^16.4.5",
+    "jimp": "^1.6.0"
+  }
+}
