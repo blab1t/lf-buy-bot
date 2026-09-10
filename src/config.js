@@ -10,13 +10,20 @@ function requireEnv(name) {
   return value.trim();
 }
 
+// What a request can be for. Not just Minecraft accounts: anything the server
+// trades. Each key drives its own set of wizard fields (see services/listings).
 const CATEGORY_LABELS = {
-  og: 'OG',
-  semi: 'Semi OG',
-  '3cn': '3 Character Name',
-  stat: 'Stats',
-  cosmetics: 'Cosmetics',
+  mcacc: 'Minecraft Accounts',
+  name: 'Names',
+  capes: 'Cape Accounts',
+  capecode: 'Cape Codes',
   minecon: 'Minecon',
+  quicksell: 'Quicksells',
+  discord: 'Discord Accounts',
+  dcserver: 'Discord Servers',
+  youtube: 'YouTube Channels',
+  social: 'Social Accounts',
+  gaming: 'Gaming Accounts',
   other: 'Other',
 };
 
@@ -68,7 +75,10 @@ module.exports = {
   ANGELS_API_KEY: (process.env.ANGELS_API_KEY || '').trim(),
   DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bot.db'),
 
-  PROXY_CATEGORIES: ['og', 'semi', '3cn', 'stat', 'cosmetics', 'minecon', 'other'],
+  PROXY_CATEGORIES: [
+    'mcacc', 'name', 'capes', 'capecode', 'minecon', 'quicksell',
+    'discord', 'dcserver', 'youtube', 'social', 'gaming', 'other',
+  ],
   CATEGORY_LABELS,
   WALLET_COINS,
   RULES_TEXT,
@@ -86,6 +96,8 @@ module.exports = {
   // Tickets a seller opens when answering a request.
   CAT_BUY: 'Seller Offers',
   CAT_SUPPORT: 'Support Tickets',
+  // Holds the plain community channels below.
+  CAT_GENERAL: 'General',
   CH_VERIFY: 'verify',
   CH_TICKETS: 'tickets',
   // Channel holding the "post what you are looking for" panel.

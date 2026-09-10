@@ -8,7 +8,8 @@ const setup = require('./setup');
 const EPH = MessageFlags.Ephemeral;
 
 const CATEGORY_EMOJI = {
-  og: '👑', semi: '⭐', '3cn': '🔢', stat: '📊', cosmetics: '🎨', minecon: '🎪', other: '📦',
+  mcacc: '🎮', name: '🔤', capes: '🧥', capecode: '🎟️', minecon: '🎪', quicksell: '⚡',
+  discord: '💬', dcserver: '🏠', youtube: '📺', social: '📱', gaming: '🕹️', other: '📦',
 };
 
 function parseEmoji(raw) {

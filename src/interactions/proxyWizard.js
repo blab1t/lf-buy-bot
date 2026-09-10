@@ -29,7 +29,7 @@ async function startWizard(interaction, options = {}) {
     boundListingChannelId: options.boundListingChannelId || null,
   });
   await interaction.reply({
-    content: 'Let us post what you are looking for. First, pick the account category.',
+    content: 'Let us post what you are looking for. First, pick what kind of thing it is.',
     components: [listings.buildCategorySelectRow('pw:cat', setup.proxyCategoriesInDiscordOrder(interaction.guild))],
     flags: EPH,
   });
@@ -269,43 +269,56 @@ async function handle(interaction, parts) {
     if (!data) return expired(interaction);
     data.category = interaction.values[0];
     if (!proxyCategories.resolve(data.category)) return expired(interaction);
-    return interaction.showModal(listings.buildIgnModal('pw:ign', { ignHidden: data.ignHidden }));
+    return interaction.showModal(listings.buildBasicsModal('pw:ign', data));
   }
 
   if (action === 'ignretry') {
     if (!data) return expired(interaction);
-    return interaction.showModal(listings.buildIgnModal('pw:ign', { ignHidden: data.ignHidden }));
+    return interaction.showModal(listings.buildBasicsModal('pw:ign', data));
   }
 
   if (action === 'ign') {
     if (!data) return expired(interaction);
     const ign = interaction.fields.getTextInputValue('ign').trim();
-    // The hide choice is entered in the same modal as the username.
-    let hiddenChoice = '';
-    try {
-      hiddenChoice = interaction.fields.getTextInputValue('hidden');
-    } catch (err) {
-      hiddenChoice = '';
-    }
-    data.ignHidden = listings.parseYesNo(hiddenChoice, Boolean(data.ignHidden));
     const retryRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('pw:ignretry').setLabel('Enter it again').setStyle(ButtonStyle.Primary).setEmoji('📝'),
       new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
     );
     if (!ign) {
       return interaction.reply({
-        content: 'Write what you are looking for, for example `3-letter OG name` or the exact IGN of the account you want.',
+        content: 'Write a short title, for example `3-letter OG name` or `Migrator cape account`.',
         components: [retryRow],
         flags: EPH,
       });
     }
+    // The price range, the description and the amount all live in this modal.
+    data.basics = {};
+    try {
+      data.basics.price_min = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
+      data.bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
+    } catch (err) {
+      return interaction.reply({ content: err.message, components: [retryRow], flags: EPH });
+    }
+    const minValue = listings.usdToNumber(data.basics.price_min);
+    const maxValue = listings.usdToNumber(data.bin);
+    if (minValue !== null && maxValue !== null && minValue > maxValue) {
+      return interaction.reply({
+        content: `Your lower bound (**${data.basics.price_min}**) is above your upper bound (**${data.bin}**). Enter the range the other way round.`,
+        components: [retryRow],
+        flags: EPH,
+      });
+    }
+    data.basics.description = interaction.fields.getTextInputValue('description').trim().slice(0, 1000);
+    data.basics.amount = interaction.fields.getTextInputValue('amount').trim().slice(0, 40);
+    // A best offer only exists once a seller actually offers something.
+    data.co = 'Offer';
     await interaction.deferReply({ flags: EPH });
     data.ign = ign;
     data.uuid = null;
     // A request may name one exact account or describe a whole class of them.
     // Only the first kind can be resolved on Mojang, and a failed lookup is
     // never fatal here: the request is about an account the buyer does not own.
-    if (mojang.isValidIgn(ign)) {
+    if (listings.wantsCapes(data.category) && mojang.isValidIgn(ign)) {
       try {
         const resolved = await mojang.resolveUser(ign);
         if (resolved) {
@@ -323,10 +336,26 @@ async function handle(interaction, parts) {
     }
     data.detected = data.uuid ? await capes.detectCapes(data.uuid, capeUrl) : [];
     data.capes = [...data.detected];
-    data.prefill = data.uuid && data.category === 'stat' ? await blabit.getPrefill(data.uuid) : null;
+    data.prefill = data.uuid && data.category === 'mcacc' ? await blabit.getPrefill(data.uuid) : null;
     // Offer the existing listing from a linked server as a starting point.
     data.template = data.uuid ? sync.findTemplate(data.uuid) : null;
     data.templateApplied = false;
+    // Capes only matter for account-shaped requests. A Discord account or a
+    // YouTube channel skips straight to its own detail fields.
+    if (!listings.wantsCapes(data.category)) {
+      return interaction.editReply({
+        content: `Saved. Last step: the details for **${(proxyCategories.resolve(data.category) || {}).label || data.category}**.`,
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pw:cont').setLabel('Add details').setStyle(ButtonStyle.Primary).setEmoji('📝'),
+            new ButtonBuilder().setCustomId('pw:hide')
+              .setLabel(data.ignHidden ? 'Title: Hidden' : 'Hide title')
+              .setStyle(data.ignHidden ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+          ),
+        ],
+      });
+    }
     return interaction.editReply(capeStepPayload(data));
   }
 
@@ -353,6 +382,20 @@ async function handle(interaction, parts) {
   if (action === 'hide') {
     if (!data) return expired(interaction);
     data.ignHidden = !data.ignHidden;
+    if (!listings.wantsCapes(data.category)) {
+      return interaction.update({
+        content: `Title is now **${data.ignHidden ? 'hidden' : 'visible'}** on the public card. Press Add details to continue.`,
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pw:cont').setLabel('Add details').setStyle(ButtonStyle.Primary).setEmoji('📝'),
+            new ButtonBuilder().setCustomId('pw:hide')
+              .setLabel(data.ignHidden ? 'Title: Hidden' : 'Hide title')
+              .setStyle(data.ignHidden ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+          ),
+        ],
+      });
+    }
     return interaction.update(capeStepPayload(data));
   }
 
@@ -373,36 +416,12 @@ async function handle(interaction, parts) {
 
   if (action === 'info') {
     if (!data) return expired(interaction);
-    data.info = {};
+    // The detail fields plus everything the basics modal already collected.
+    data.info = { ...(data.basics || {}) };
     for (const field of listings.infoFieldsForCategory(data.category)) {
       const value = interaction.fields.getTextInputValue(field.key).trim();
       // A bare number in the name-changes field reads better as "12nc".
       data.info[field.key] = field.key === 'namechanges' ? listings.formatNameChanges(value) : value;
-    }
-    return interaction.reply({
-      content: 'Requirements saved. Last step: set your budget. Leaving it blank means **Offer** (open to any price).',
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('pw:price').setLabel('Set budget').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
-        ),
-      ],
-      flags: EPH,
-    });
-  }
-
-  if (action === 'price') {
-    if (!data || !data.info) return expired(interaction);
-    return interaction.showModal(listings.buildPriceModal('pw:pricem', data));
-  }
-
-  if (action === 'pricem') {
-    if (!data || !data.info) return expired(interaction);
-    try {
-      data.co = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('co'));
-      data.bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
-    } catch (err) {
-      return interaction.reply({ content: err.message, flags: EPH });
     }
     await interaction.deferReply({ flags: EPH });
     // A wizard started from `/proxy attach` or an import is already bound to its

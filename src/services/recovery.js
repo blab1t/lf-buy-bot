@@ -23,7 +23,7 @@ function channelNameFor(listing) {
   if (listing.ign_hidden) {
     return listing.category === 'minecon' ? listings.mineconChannelName(listing) : 'hidden';
   }
-  if (listing.category === 'stat' && listing.name_suggestion) return listing.name_suggestion;
+  if (listing.category === 'mcacc' && listing.name_suggestion) return listing.name_suggestion;
   if (listing.category === 'minecon') return listings.mineconChannelName(listing);
   return listing.ign.toLowerCase();
 }

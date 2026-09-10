@@ -369,7 +369,7 @@ async function sortListingChannels(guild, categoryKey, categoryChannel = null, p
 
 // Kept for callers that only want the Stats category refreshed.
 async function sortStatListingChannels(guild, statCategory = null) {
-  return sortListingChannels(guild, 'stat', statCategory);
+  return sortListingChannels(guild, 'mcacc', statCategory);
 }
 
 async function sortAllListingChannels(guild, prefetched = null) {
@@ -461,6 +461,32 @@ function readOnlyOverwritesByIds(guild) {
   return overwrites;
 }
 
+// The Discord category the community channels live in. An existing category
+// with the same name is adopted rather than duplicated.
+async function ensureGeneralCategory(guild) {
+  const storedId = db.getSetting('cat_general');
+  const stored = storedId ? await guild.channels.fetch(storedId).catch(() => null) : null;
+  if (stored && stored.type === ChannelType.GuildCategory) return stored;
+  const existing = guild.channels.cache.find(
+    (channel) => channel.type === ChannelType.GuildCategory
+      && channel.name.toLowerCase() === config.CAT_GENERAL.toLowerCase()
+  );
+  if (existing) {
+    db.setSetting('cat_general', existing.id);
+    return existing;
+  }
+  const category = await guild.channels.create({
+    name: config.CAT_GENERAL,
+    type: ChannelType.GuildCategory,
+    permissionOverwrites: readOnlyOverwritesByIds(guild),
+  }).catch((err) => {
+    console.error('Could not create the General category:', err.message);
+    return null;
+  });
+  if (category) db.setSetting('cat_general', category.id);
+  return category;
+}
+
 // The plain community channels from config.EXTRA_CHANNELS (chat, botspam,
 // announcements, partners, telegram, giveaways, dndw). An existing channel with
 // the same name is adopted untouched; only new ones get the preset's perms.
@@ -468,6 +494,7 @@ async function ensureExtraChannels(guild) {
   const channelPerms = require('./channelPerms');
   const created = [];
   const kept = [];
+  const parent = await ensureGeneralCategory(guild);
   for (const entry of config.EXTRA_CHANNELS) {
     const settingKey = `extra_channel_${entry.name}`;
     const storedId = db.getSetting(settingKey);
@@ -483,6 +510,7 @@ async function ensureExtraChannels(guild) {
       channel = await guild.channels.create({
         name: entry.name,
         type: ChannelType.GuildText,
+        parent: parent ? parent.id : undefined,
         permissionOverwrites: await channelPerms.overwritesFor(guild, entry.preset),
       }).catch((err) => {
         console.error(`Could not create #${entry.name}:`, err.message);
@@ -490,9 +518,15 @@ async function ensureExtraChannels(guild) {
       });
       if (channel) created.push(channel);
     }
+    // An adopted channel keeps whatever category it already sits in; only a
+    // homeless one is tucked under General.
+    if (channel && parent && !channel.parentId) {
+      await channel.setParent(parent.id, { lockPermissions: false })
+        .catch((err) => console.error(`Could not move #${entry.name} into General:`, err.message));
+    }
     if (channel) db.setSetting(settingKey, channel.id);
   }
-  return { created, kept };
+  return { created, kept, parent };
 }
 
 // `choices` comes from the guided /setup flow. Existing selected channels keep
@@ -548,7 +582,7 @@ async function runSetup(guild, choices) {
   const extra = await ensureExtraChannels(guild);
   if (extra.created.length || extra.kept.length) {
     summary.push(
-      `Community channels: ${[...extra.created, ...extra.kept].map((channel) => `${channel}`).join(' ')}`
+      `Community channels${extra.parent ? ` under **${extra.parent.name}**` : ''}: ${[...extra.created, ...extra.kept].map((channel) => `${channel}`).join(' ')}`
       + `${extra.kept.length ? ` (${extra.kept.length} already existed and were left untouched)` : ''}.`
     );
   }
@@ -603,7 +637,7 @@ async function runSetup(guild, choices) {
 }
 
 module.exports = {
-  runSetup, ensureExtraChannels, ensureVouchPermissions, arrangeListingCategories, buildProxyPanel, buildTicketPanel, buildVerificationMessage, ensureListingCategory, removeListingCategory, ensureSoldCategory,
+  runSetup, ensureExtraChannels, ensureGeneralCategory, ensureVouchPermissions, arrangeListingCategories, buildProxyPanel, buildTicketPanel, buildVerificationMessage, ensureListingCategory, removeListingCategory, ensureSoldCategory,
   renameListingCategory, updateListingCategoryVisibility, refreshListingCategoryVisibility,
   proxyCategoriesInDiscordOrder,
   organizeListing, organizeAllListings, sortStatListingChannels, sortListingChannels, sortAllListingChannels,

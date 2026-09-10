@@ -22,9 +22,11 @@ to paste into `.env`.
 
 ## How a deal works
 
-1. A member presses **Create Request** (or runs `/request create`) and picks a
-   category, describes the account wanted (an exact IGN or a description such as
-   `3-letter OG name`), the capes it should have, the requirements, and a budget.
+1. A member presses **Create Request** (or runs `/request create`) and picks what
+   kind of thing they want, then fills one modal with a short title, a free
+   description, a **budget range** (from / up to) and how many they want.
+   Account-shaped requests then pick the capes they want; every request finally
+   fills the detail fields for its kind (see below).
 2. The bot opens a private request ticket and pings staff.
 3. Staff press **Accept**, name the request channel, and press **Finish**. The
    request card is published on the board.
@@ -41,8 +43,28 @@ to paste into `.env`.
 - Channels: `verify`, `tickets`, `requests`, `vouches-<count>`, plus the community
   channels `announcements`, `partners`, `telegram`, `chat`, `botspam`, `giveaways`
   and `dndw`. Channels that already exist are adopted, never recreated or wiped.
-- Categories: Request Tickets, Seller Offers, Support Tickets, Fulfilled Requests
-  and one per request category (OG, Semi OG, 3CN, Stats, Cosmetics, Minecon, Other).
+- Categories: **General** (holding the community channels), Request Tickets,
+  Seller Offers, Support Tickets, Fulfilled Requests, and one per request kind.
+
+## What can be requested
+
+| Kind | Detail fields it asks for |
+|---|---|
+| Minecraft Accounts | ranks/NWL, stats, incidents, payment, other |
+| Names | type of name, name changes, incidents, payment, other |
+| Cape Accounts | specific capes, how many capes, name changes, incidents, other |
+| Cape Codes | specific capes/codes, how many, payment, incidents, other |
+| Minecon | name changes, capes, incidents, payment, other |
+| Quicksells | bulk terms, stats, ranks, payment, other |
+| Discord Accounts | account age, badges/Nitro, handle, incidents, other |
+| Discord Servers | members, niche, vanity, incidents, other |
+| YouTube Channels | subscribers, niche, handle, incidents, other |
+| Social Accounts | followers, niche, handle, incidents, other |
+| Gaming Accounts | platform/game, stats, incidents, payment, other |
+| Other | platform, payment, incidents, other |
+
+Every kind also carries the shared basics: title, description, budget range and
+amount. Staff can add more kinds with `/request category-create`.
 
 ## Commands
 

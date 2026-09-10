@@ -49,7 +49,7 @@ async function listingChannelOverwrites(guild) {
 
 // Editing actions the buyer may run on their own request while it is still
 // unpublished. Accepting, denying, publishing and deleting stay staff-only.
-const OWNER_EDITABLE = new Set(['edit', 'editsel', 'editinfo', 'editprice', 'editcapes', 'editmeta']);
+const OWNER_EDITABLE = new Set(['edit', 'editsel', 'editbasics', 'editinfo', 'editprice', 'editcapes', 'editmeta']);
 
 async function handle(interaction, parts) {
   const action = parts[1];
@@ -126,7 +126,7 @@ async function handle(interaction, parts) {
       ? listings.mineconChannelName(listing)
       : listing.ign_hidden
       ? 'hidden'
-      : listing.category === 'stat' && listing.name_suggestion
+      : listing.category === 'mcacc' && listing.name_suggestion
       ? listing.name_suggestion
       : listing.ign.toLowerCase();
     const modal = new ModalBuilder()
@@ -280,6 +280,15 @@ async function handle(interaction, parts) {
 
   if (action === 'editsel') {
     const choice = interaction.values[0];
+    if (choice === 'basics') {
+      return interaction.showModal(listings.buildBasicsModal(`rv:editbasics:${listing.id}`, {
+        ign: listing.ign,
+        bin: listing.bin,
+        description: listing.info.description,
+        price_min: listing.info.price_min,
+        amount: listing.info.amount,
+      }));
+    }
     if (choice === 'info') return interaction.showModal(listings.buildInfoModal(`rv:editinfo:${listing.id}`, listing.info, listing.category));
     if (choice === 'prices') return interaction.showModal(listings.buildPriceModal(`rv:editprice:${listing.id}`, listing));
     if (choice === 'meta') return interaction.showModal(listings.buildMetaModal(`rv:editmeta:${listing.id}`, listing));
@@ -293,9 +302,39 @@ async function handle(interaction, parts) {
     return null;
   }
 
+  if (action === 'editbasics') {
+    const ign = interaction.fields.getTextInputValue('ign').trim();
+    if (!ign) return interaction.reply({ content: 'The title cannot be empty.', flags: EPH });
+    let priceMin;
+    let bin;
+    try {
+      priceMin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
+      bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
+    } catch (err) {
+      return interaction.reply({ content: err.message, flags: EPH });
+    }
+    const minValue = listings.usdToNumber(priceMin);
+    const maxValue = listings.usdToNumber(bin);
+    if (minValue !== null && maxValue !== null && minValue > maxValue) {
+      return interaction.reply({ content: 'The lower bound of the budget is above its upper bound.', flags: EPH });
+    }
+    await interaction.deferReply({ flags: EPH });
+    const info = {
+      ...listing.info,
+      price_min: priceMin,
+      description: interaction.fields.getTextInputValue('description').trim().slice(0, 1000),
+      amount: interaction.fields.getTextInputValue('amount').trim().slice(0, 40),
+    };
+    db.updateListing(listing.id, { ign, bin, info });
+    await rerender(interaction.client, listing.id);
+    return interaction.editReply({ content: 'Title, description, budget and amount updated.' });
+  }
+
   if (action === 'editinfo') {
     await interaction.deferReply({ flags: EPH });
-    const info = {};
+    // Keep the basics (description, price_min, amount) that this modal does not
+    // show, so editing the requirements never wipes them.
+    const info = { ...listing.info };
     for (const field of listings.infoFieldsForCategory(listing.category)) {
       const value = interaction.fields.getTextInputValue(field.key).trim();
       info[field.key] = field.key === 'namechanges' ? listings.formatNameChanges(value) : value;
@@ -309,13 +348,20 @@ async function handle(interaction, parts) {
     await interaction.deferReply({ flags: EPH });
     let co;
     let bin;
+    let priceMin;
     try {
+      priceMin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('price_min'));
       co = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('co'));
       bin = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('bin'));
     } catch (err) {
       return interaction.editReply(err.message);
     }
-    db.updateListing(listing.id, { co, bin });
+    const minValue = listings.usdToNumber(priceMin);
+    const maxValue = listings.usdToNumber(bin);
+    if (minValue !== null && maxValue !== null && minValue > maxValue) {
+      return interaction.editReply('The lower bound of the budget is above its upper bound.');
+    }
+    db.updateListing(listing.id, { co, bin, info: { ...listing.info, price_min: priceMin } });
     await rerender(interaction.client, listing.id);
     return interaction.editReply({ content: 'Budget updated.' });
   }

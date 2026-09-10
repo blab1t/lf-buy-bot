@@ -8,27 +8,100 @@ const capes = require('./capes');
 const db = require('../db');
 const proxyCategories = require('./proxyCategories');
 
-// A request describes the account somebody is LOOKING FOR, so every field is a
-// requirement rather than a property of an account that already exists.
-const INFO_FIELDS = [
-  { key: 'ranks', label: 'Wanted ranks / NWL', placeholder: 'MVP+ or higher | NWL 100+' },
-  { key: 'bans', label: 'Required status', placeholder: 'Unbanned | clean history | full access only' },
-  { key: 'stats', label: 'Wanted BW / SW / Duels stats', placeholder: 'BW: 300+ stars, 3+ FKDR | Duels: any' },
-  { key: 'cosmetics', label: 'Wanted cosmetics', placeholder: 'Any rare skins, capes, bundles...' },
-  { key: 'extra', label: 'Other requirements (one per line)', placeholder: 'One requirement per line', multiline: true },
-];
-
-const NAME_CHANGE_CATEGORIES = new Set(['og', 'semi', '3cn', 'minecon']);
-const NAME_CHANGES_FIELD = {
-  key: 'namechanges', label: 'Wanted name changes', placeholder: 'e.g. max 2, or 0nc only',
+// A request describes what somebody is LOOKING FOR, so every field is a
+// requirement rather than a property of something that already exists.
+// Discord allows 5 inputs per modal, so no field set below may exceed 5.
+const FIELDS = {
+  ranks: { key: 'ranks', label: 'Wanted ranks / NWL', placeholder: 'MVP+ or higher | NWL 100+' },
+  stats: { key: 'stats', label: 'Wanted stats', placeholder: 'BW 300+ stars, 3+ FKDR | SW any' },
+  incidents: { key: 'incidents', label: 'Incidents (bans, history, access)', placeholder: 'Unbanned, clean history, full access only' },
+  namechanges: { key: 'namechanges', label: 'Name changes allowed', placeholder: '0nc only, or max 2' },
+  nametype: { key: 'nametype', label: 'Type of name', placeholder: '3cn digits, 4-letter word, OG single word' },
+  capecount: { key: 'capecount', label: 'How many capes', placeholder: 'at least 3, or any' },
+  capenotes: { key: 'capenotes', label: 'Specific capes / cape codes', placeholder: 'Migrator + Vanilla, or an unredeemed code' },
+  quicksell: { key: 'quicksell', label: 'Quicksell / bulk terms', placeholder: 'buying 10+ in bulk, price per account' },
+  age: { key: 'age', label: 'Account age / creation date', placeholder: '2015 or older' },
+  badges: { key: 'badges', label: 'Badges / Nitro / boosts', placeholder: 'Early Supporter, HypeSquad, Nitro' },
+  handle: { key: 'handle', label: 'Wanted handle / vanity', placeholder: '@short, 3-letter vanity' },
+  members: { key: 'members', label: 'Members / subscribers / followers', placeholder: '10k+, real not botted' },
+  niche: { key: 'niche', label: 'Niche / content', placeholder: 'gaming, monetized, English audience' },
+  platform: { key: 'platform', label: 'Platform / game', placeholder: 'Steam, Valorant, Xbox gamertag' },
+  payment: { key: 'payment', label: 'Payment methods you can use', placeholder: 'LTC, BTC, PayPal F&F' },
+  extra: { key: 'extra', label: 'Other requirements (one per line)', placeholder: 'One requirement per line', multiline: true },
 };
 
+const FIELD_SETS = {
+  mcacc: ['ranks', 'stats', 'incidents', 'payment', 'extra'],
+  name: ['nametype', 'namechanges', 'incidents', 'payment', 'extra'],
+  capes: ['capenotes', 'capecount', 'namechanges', 'incidents', 'extra'],
+  capecode: ['capenotes', 'capecount', 'payment', 'incidents', 'extra'],
+  minecon: ['namechanges', 'capenotes', 'incidents', 'payment', 'extra'],
+  quicksell: ['quicksell', 'stats', 'ranks', 'payment', 'extra'],
+  discord: ['age', 'badges', 'handle', 'incidents', 'extra'],
+  dcserver: ['members', 'niche', 'handle', 'incidents', 'extra'],
+  youtube: ['members', 'niche', 'handle', 'incidents', 'extra'],
+  social: ['members', 'niche', 'handle', 'incidents', 'extra'],
+  gaming: ['platform', 'stats', 'incidents', 'payment', 'extra'],
+  other: ['platform', 'payment', 'incidents', 'extra'],
+};
+
+const DEFAULT_FIELD_SET = ['payment', 'incidents', 'extra'];
+
+// Categories where a cape picker makes sense at all.
+const CAPE_CATEGORIES = new Set(['mcacc', 'capes', 'capecode', 'minecon', 'quicksell']);
+
+// Categories where a Minecraft name change count is meaningful.
+const NAME_CHANGE_CATEGORIES = new Set(['name', 'capes', 'minecon', 'mcacc']);
+
 function infoFieldsForCategory(category) {
-  if (!NAME_CHANGE_CATEGORIES.has(category)) return INFO_FIELDS;
-  return [
-    INFO_FIELDS[0], INFO_FIELDS[1], NAME_CHANGES_FIELD,
-    INFO_FIELDS[3], INFO_FIELDS[4],
+  const keys = FIELD_SETS[category] || DEFAULT_FIELD_SET;
+  return keys.map((key) => FIELDS[key]);
+}
+
+function wantsCapes(category) {
+  return CAPE_CATEGORIES.has(category);
+}
+
+// Everything the wizard collects before the per-category detail fields:
+// what exactly, a free description, a price range and how many are wanted.
+function buildBasicsModal(customId, values = {}) {
+  const modal = new ModalBuilder().setCustomId(customId).setTitle('What are you looking for?');
+  const rows = [
+    new TextInputBuilder().setCustomId('ign')
+      .setLabel('Short title').setStyle(TextInputStyle.Short)
+      .setRequired(true).setMaxLength(80)
+      .setPlaceholder('3-letter OG name, Migrator cape acc, 10k YT channel'),
+    new TextInputBuilder().setCustomId('description')
+      .setLabel('Describe it').setStyle(TextInputStyle.Paragraph)
+      .setRequired(false).setMaxLength(1000)
+      .setPlaceholder('Anything a seller should know before offering'),
+    new TextInputBuilder().setCustomId('price_min')
+      .setLabel('Budget from (USD)').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 50; blank = no lower bound'),
+    new TextInputBuilder().setCustomId('bin')
+      .setLabel('Budget up to (USD)').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100; blank = Offer'),
+    new TextInputBuilder().setCustomId('amount')
+      .setLabel('How many do you want?').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(40).setPlaceholder('1, or 10+ for a quicksell'),
   ];
+  for (const input of rows) {
+    const value = values[input.data.custom_id];
+    if (value && String(value).trim() && String(value) !== 'Offer') {
+      input.setValue(String(value).slice(0, input.data.max_length || 100));
+    }
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+  }
+  return modal;
+}
+
+// "$50 - $100", "$100" or "Offer", depending on which bounds exist.
+function displayBudget(listing) {
+  const max = displayUsdPrice(listing.bin);
+  const min = listing.info && listing.info.price_min ? displayUsdPrice(listing.info.price_min) : null;
+  if (min && max !== 'Offer' && min !== max) return `${min} - ${max}`;
+  if (min && max === 'Offer') return `from ${min}`;
+  return max;
 }
 
 function avatarUrl(listing) {
@@ -148,13 +221,13 @@ function listingSortKey(listing) {
     case 'minecon':
       // Oldest Minecon first, then fewest name changes.
       return [Number(mineconYear(listing)) || 9999, nameChangeCount(listing.info && listing.info.namechanges)];
-    case 'og':
-    case 'semi':
-      // Longest name on top.
-      return [-String(listing.ign || '').length, String(listing.ign || '').toLowerCase()];
-    case '3cn':
+    case 'name':
+      // Shortest wanted name on top: the rarer the name, the higher it sits.
+      return [String(listing.ign || '').length, String(listing.ign || '').toLowerCase()];
+    case 'capes':
+    case 'capecode':
       return [threeCharClass(listing.ign), String(listing.ign || '').toLowerCase()];
-    case 'stat': {
+    case 'mcacc': {
       const { stars, fkdr } = statSortValues(listing);
       return [-stars, -fkdr];
     }
@@ -187,7 +260,7 @@ function compareListings(a, b) {
 function buildCategorySelectRow(customId, categories = proxyCategories.list()) {
   const select = new StringSelectMenuBuilder()
     .setCustomId(customId)
-    .setPlaceholder('Pick the account category')
+    .setPlaceholder('What are you looking for?')
     .addOptions(
       categories.map((category) => ({ label: category.label, value: category.key }))
     );
@@ -200,36 +273,6 @@ function parseYesNo(value, fallback = false) {
   const text = String(value || '').trim().toLowerCase();
   if (!text) return fallback;
   return ['y', 'yes', 'true', '1', 'hide', 'hidden', 'private', 'ja'].includes(text);
-}
-
-// The request title. Either an exact IGN the buyer is hunting for, or a short
-// description of the kind of account wanted.
-function buildIgnModal(customId, { ignHidden = false } = {}) {
-  return new ModalBuilder()
-    .setCustomId(customId)
-    .setTitle('What are you looking for?')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('ign')
-          .setLabel('Wanted account (IGN or description)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMinLength(1)
-          .setMaxLength(80)
-          .setPlaceholder('Notch, or: 3-letter OG name')
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('hidden')
-          .setLabel('Hide this title publicly? (yes/no)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(5)
-          .setPlaceholder('no')
-          .setValue(ignHidden ? 'yes' : 'no')
-      )
-    );
 }
 
 function textInput(field, value) {
@@ -252,17 +295,23 @@ function buildInfoModal(customId, values = {}, category = null) {
 
 function buildPriceModal(customId, values = {}) {
   const modal = new ModalBuilder().setCustomId(customId).setTitle('Budget');
+  const min = new TextInputBuilder()
+    .setCustomId('price_min').setLabel('Budget from (USD, optional)').setStyle(TextInputStyle.Short)
+    .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 50; blank = no lower bound');
+  const bin = new TextInputBuilder()
+    .setCustomId('bin').setLabel('Budget up to (USD)').setStyle(TextInputStyle.Short)
+    .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100 or $100 USD; blank = Offer');
   const co = new TextInputBuilder()
     .setCustomId('co').setLabel('Best offer so far (USD, optional)').setStyle(TextInputStyle.Short)
     .setRequired(false).setMaxLength(64).setPlaceholder('blank unless a seller already offered');
-  const bin = new TextInputBuilder()
-    .setCustomId('bin').setLabel('Your budget (USD)').setStyle(TextInputStyle.Short)
-    .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100 or $100 USD; blank = Offer');
-  if (values.co && values.co !== 'Offer') co.setValue(String(values.co).slice(0, 64));
+  const storedMin = values.info ? values.info.price_min : values.price_min;
+  if (storedMin && storedMin !== 'Offer') min.setValue(String(storedMin).slice(0, 64));
   if (values.bin && values.bin !== 'Offer') bin.setValue(String(values.bin).slice(0, 64));
+  if (values.co && values.co !== 'Offer') co.setValue(String(values.co).slice(0, 64));
   modal.addComponents(
-    new ActionRowBuilder().addComponents(co),
-    new ActionRowBuilder().addComponents(bin)
+    new ActionRowBuilder().addComponents(min),
+    new ActionRowBuilder().addComponents(bin),
+    new ActionRowBuilder().addComponents(co)
   );
   return modal;
 }
@@ -325,6 +374,7 @@ function buildEditSelectRow(listingId) {
     .setCustomId(`rv:editsel:${listingId}`)
     .setPlaceholder('What do you want to edit?')
     .addOptions(
+      { label: 'Title, description, budget, amount', value: 'basics', emoji: '📄' },
       { label: 'Requirements', value: 'info', emoji: '📝' },
       { label: 'Budget and best offer', value: 'prices', emoji: '💶' },
       { label: 'Wanted capes', value: 'capes', emoji: '🧥' },
@@ -377,6 +427,12 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
     ? `${listing.ign}${listing.ign_hidden ? ' (Hidden)' : ''}`
     : displayIgn(listing);
   const headerTexts = [new TextDisplayBuilder().setContent(`# ${headerName}`)];
+  const description = listing.info ? String(listing.info.description || '').trim() : '';
+  if (description) {
+    headerTexts.push(new TextDisplayBuilder().setContent(description.slice(0, 1000)));
+  }
+  const amount = listing.info ? String(listing.info.amount || '').trim() : '';
+  if (amount) bullets.unshift(`- Wants **${amount}**`);
   if (bullets.length) {
     headerTexts.push(new TextDisplayBuilder().setContent(bullets.join('\n').slice(0, 2000)));
   }
@@ -396,7 +452,7 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
     new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true)
   );
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`Budget: **${displayUsdPrice(listing.bin)}**\nBest offer: **${displayUsdPrice(listing.co)}**`)
+    new TextDisplayBuilder().setContent(`Budget: **${displayBudget(listing)}**\nBest offer: **${displayUsdPrice(listing.co)}**`)
   );
   if (mode === 'sold' || !listing.hide_proxy_label) {
     container.addSeparatorComponents(
@@ -456,7 +512,7 @@ function buildListingEmbed(listing, { imported = false } = {}) {
     .setTitle(displayIgn(listing))
     .addFields(
       { name: 'Category', value: category ? category.label : listing.category, inline: true },
-      { name: 'Budget', value: displayUsdPrice(listing.bin), inline: true },
+      { name: 'Budget', value: displayBudget(listing), inline: true },
       { name: 'Best offer', value: displayUsdPrice(listing.co), inline: true },
     );
   if (hasAvatar(listing)) embed.setThumbnail(avatarUrl(listing));
@@ -619,10 +675,10 @@ async function renderPublished(client, listingRow) {
 }
 
 module.exports = {
-  hasAvatar,
-  INFO_FIELDS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
+  hasAvatar, wantsCapes, buildBasicsModal, displayBudget,
+  FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
   formatNameChanges, nameChangeCount, threeCharClass, listingSortKey, compareListings,
-  buildCategorySelectRow, buildIgnModal, buildInfoModal, buildPriceModal, parseYesNo,
+  buildCategorySelectRow, buildInfoModal, buildPriceModal, parseYesNo,
   buildCapeSelectRows, buildMetaModal, buildEditSelectRow, buildSoldButtonRow, buildOfferAgainRow,
   buildListingContainer, buildListingEmbed, listingPayload, renderPreview, renderPublished, stripSoldButtons,
   announceListingUpdate, priceChangeVerb, notifyWatchers, notifyOutbid,

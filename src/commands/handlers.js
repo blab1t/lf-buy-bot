@@ -271,7 +271,7 @@ async function transferProxy(interaction) {
   if (!resolved && !lookupFailed) {
     return interaction.editReply(`⚠️ **${ign}** is not an existing Minecraft account. Pass the real username with the \`ign\` option (use \`ign-hidden\` to keep it private).`);
   }
-  const prefill = resolved && category.key === 'stat' ? await blabit.getPrefill(resolved.uuid) : null;
+  const prefill = resolved && category.key === 'mcacc' ? await blabit.getPrefill(resolved.uuid) : null;
   const listing = db.createListing({
     ign: resolved ? resolved.name : ign,
     uuid: resolved ? resolved.uuid : null,
