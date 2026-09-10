@@ -12,18 +12,14 @@ function requireEnv(name) {
 
 // What a request can be for. Not just Minecraft accounts: anything the server
 // trades. Each key drives its own set of wizard fields (see services/listings).
+// The sections a request can go in. Fixed on purpose: only staff may add more,
+// through /request category-create.
 const CATEGORY_LABELS = {
-  mcacc: 'Minecraft Accounts',
-  name: 'Names',
-  capes: 'Cape Accounts',
-  capecode: 'Cape Codes',
-  minecon: 'Minecon',
-  quicksell: 'Quicksells',
-  discord: 'Discord Accounts',
-  dcserver: 'Discord Servers',
-  youtube: 'YouTube Channels',
-  social: 'Social Accounts',
-  gaming: 'Gaming Accounts',
+  ogs: 'OGs',
+  semis: 'Semis',
+  capes: 'Capes',
+  stats: 'Stats',
+  quickbuy: 'Quickbuy',
   other: 'Other',
 };
 
@@ -75,10 +71,7 @@ module.exports = {
   ANGELS_API_KEY: (process.env.ANGELS_API_KEY || '').trim(),
   DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bot.db'),
 
-  PROXY_CATEGORIES: [
-    'mcacc', 'name', 'capes', 'capecode', 'minecon', 'quicksell',
-    'discord', 'dcserver', 'youtube', 'social', 'gaming', 'other',
-  ],
+  PROXY_CATEGORIES: ['ogs', 'semis', 'capes', 'stats', 'quickbuy', 'other'],
   CATEGORY_LABELS,
   WALLET_COINS,
   RULES_TEXT,

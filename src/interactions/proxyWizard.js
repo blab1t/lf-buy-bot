@@ -31,7 +31,7 @@ function detailsRow() {
 async function startWizard(interaction, options = {}) {
   const existing = state.get(interaction.user.id);
   state.set(interaction.user.id, {
-    step: 'basics',
+    step: 'category',
     ownerId: options.ownerId || interaction.user.id,
     // Titles are always public; there is no hide option any more.
     ignHidden: false,
@@ -47,7 +47,11 @@ async function startWizard(interaction, options = {}) {
     // Optional existing public request channel to reuse instead of creating one.
     boundListingChannelId: options.boundListingChannelId || null,
   });
-  return interaction.showModal(listings.buildBasicsModal('pw:ign', state.get(interaction.user.id).raw));
+  return interaction.reply({
+    content: 'Let us post what you are looking for. First, pick the section it belongs in.',
+    components: [listings.buildCategorySelectRow('pw:cat')],
+    flags: EPH,
+  });
 }
 
 function expired(interaction) {
@@ -96,11 +100,12 @@ function capeStepPayload(data) {
 // for, so nothing is impossible to describe.
 function extraStepPayload(data, lead = 'Details saved. Add anything else, or post the request.') {
   return {
-    content: lead,
+    content: `${lead}\nChannel name: **#${data.channelName}**`,
     components: [
       listings.buildExtraFieldRow('pw:more', data.category, data.info),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('pw:post').setLabel('Post request').setStyle(ButtonStyle.Success).setEmoji('📨'),
+        new ButtonBuilder().setCustomId('pw:chan').setLabel('Channel name').setStyle(ButtonStyle.Secondary).setEmoji('🏷️'),
         new ButtonBuilder().setCustomId('pw:cont').setLabel('Edit details').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
       ),
@@ -160,7 +165,7 @@ async function createProxyTicket(interaction, data) {
     co: data.co,
     bin: data.bin,
     requesterId: data.ownerId,
-    nameSuggestion: data.prefill ? data.prefill.nameSuggestion : null,
+    nameSuggestion: data.channelName || null,
     ignHidden: data.ignHidden,
     hideProxyLabel: data.hideProxyLabel,
   });
@@ -273,6 +278,14 @@ async function handle(interaction, parts) {
 
   const data = state.get(interaction.user.id);
 
+  if (action === 'cat') {
+    if (!data) return expired(interaction);
+    const category = proxyCategories.resolve(interaction.values[0]);
+    if (!category) return expired(interaction);
+    data.category = category.key;
+    return interaction.showModal(listings.buildBasicsModal('pw:ign', data.raw));
+  }
+
   if (action === 'ignretry') {
     if (!data) return expired(interaction);
     return interaction.showModal(listings.buildBasicsModal('pw:ign', data.raw));
@@ -282,12 +295,12 @@ async function handle(interaction, parts) {
     if (!data) return expired(interaction);
     // Store the raw input first: any error below reopens the modal with it.
     data.raw = {
-      kind: interaction.fields.getTextInputValue('kind').trim(),
       ign: interaction.fields.getTextInputValue('ign').trim(),
       description: interaction.fields.getTextInputValue('description').trim(),
       budget: interaction.fields.getTextInputValue('budget').trim(),
       amount: interaction.fields.getTextInputValue('amount').trim(),
     };
+    if (!data.category) return expired(interaction);
     if (!data.raw.ign) {
       return interaction.reply({
         content: 'Write a short title, for example `3-letter OG name` or `Migrator cape account`.',
@@ -301,20 +314,6 @@ async function handle(interaction, parts) {
     } catch (err) {
       return interaction.reply({ content: err.message, components: [retryRow()], flags: EPH });
     }
-    // Anything can be requested: a kind nobody asked for before is created on
-            // the spot, and only an unusable name falls back to Other.
-    let category = proxyCategories.resolve(data.raw.kind);
-    let created = false;
-    if (!category) {
-      try {
-        category = proxyCategories.create(data.raw.kind);
-        created = true;
-      } catch (err) {
-        category = null;
-      }
-    }
-    const fallback = !category;
-    data.category = category ? category.key : 'other';
     data.ign = data.raw.ign;
     data.uuid = null;
     data.bin = budget.max;
@@ -322,25 +321,19 @@ async function handle(interaction, parts) {
     data.co = 'Offer';
     data.basics = {
       price_min: budget.min,
-      description: fallback && data.raw.kind
-        ? `${data.raw.kind}${data.raw.description ? `\n${data.raw.description}` : ''}`.slice(0, 1000)
-        : data.raw.description.slice(0, 1000),
+      description: data.raw.description.slice(0, 1000),
       amount: data.raw.amount.slice(0, 40),
     };
+    // The channel name follows the title until the buyer changes it.
+    data.channelName = tickets.sanitizeListingChannelName(data.ign);
     const kindLabel = (proxyCategories.resolve(data.category) || {}).label || data.category;
-    const kindNote = fallback
-      ? `**${data.raw.kind}** cannot be used as a section name, so this goes under **${kindLabel}** and your wording stays on the card.\n`
-      : created
-      ? `Added **${kindLabel}** as a new kind.\n`
-      : '';
     await interaction.deferReply({ flags: EPH });
     if (!listings.wantsCapes(data.category)) {
       return interaction.editReply({
-        content: `${kindNote}Saved. Last step: the details for **${kindLabel}**.`,
+        content: `Saved. Last step: the details for **${kindLabel}**.`,
         components: [detailsRow()],
       });
     }
-    if (kindNote) await interaction.followUp({ content: kindNote, flags: EPH }).catch(() => {});
     return interaction.editReply(capeStepPayload(data));
   }
 
@@ -353,12 +346,6 @@ async function handle(interaction, parts) {
 
   if (action === 'cont') {
     if (!data || !data.ign) return expired(interaction);
-    if (data.category === 'minecon' && !listings.mineconYear({ capes: data.capes })) {
-      return interaction.reply({
-        content: 'Pick the Minecon cape you are after so I can derive the year for its channel name.',
-        flags: EPH,
-      });
-    }
     return interaction.showModal(listings.buildInfoModal('pw:info', data.info || {}, data.category));
   }
 
@@ -391,6 +378,21 @@ async function handle(interaction, parts) {
     }
     data.moreKeys = null;
     return interaction.reply(extraStepPayload(data, 'Added. Anything else, or post it?'));
+  }
+
+  if (action === 'chan') {
+    if (!data || !data.info) return expired(interaction);
+    return interaction.showModal(listings.buildChannelNameModal('pw:chanm', data.channelName));
+  }
+
+  if (action === 'chanm') {
+    if (!data || !data.info) return expired(interaction);
+    const name = tickets.sanitizeListingChannelName(interaction.fields.getTextInputValue('chname'));
+    if (!name) {
+      return interaction.reply(extraStepPayload(data, 'That channel name has no usable characters, so I kept the old one.'));
+    }
+    data.channelName = name;
+    return interaction.reply(extraStepPayload(data, 'Channel name updated.'));
   }
 
   if (action === 'post') {

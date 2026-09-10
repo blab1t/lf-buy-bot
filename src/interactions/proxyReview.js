@@ -121,13 +121,8 @@ async function handle(interaction, parts) {
     const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
     // Stats accounts sell on their numbers. Minecon channels use year-namechanges.
     // Other account categories use the account name itself.
-    const suggested = listing.category === 'minecon'
-      ? listings.mineconChannelName(listing)
-      : listing.ign_hidden
-      ? 'hidden'
-      : listing.category === 'mcacc' && listing.name_suggestion
-      ? listing.name_suggestion
-      : listing.ign.toLowerCase();
+    // Whatever the buyer suggested, falling back to their title.
+    const suggested = tickets.sanitizeListingChannelName(listing.name_suggestion || listing.ign) || 'request';
     const modal = new ModalBuilder()
       .setCustomId(`rv:chan:${listing.id}`)
       .setTitle('Request channel name')

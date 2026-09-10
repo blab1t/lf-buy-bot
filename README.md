@@ -22,15 +22,14 @@ to paste into `.env`.
 
 ## How a deal works
 
-1. A member presses **Create Request** (or runs `/request create`) and gets one
-   modal straight away: what kind of thing it is (typed, not picked from a menu),
+1. A member presses **Create Request** (or runs `/request create`), picks the
+   section (OGs, Semis, Capes, Stats, Quickbuy, Other), then fills one modal:
    a short title, a description, a budget (`100` or a range `50-100`) and how
-   many they want. A kind the bot does not know yet is created on the spot, so
-   anything can be requested. Account-shaped requests then pick the capes the
-   account should ideally have; every request fills the detail fields for its
-   kind (see below) and can then add **any other field** from the whole registry
-   through a menu before posting. If anything is rejected, **Edit again** reopens
-   the modal with everything still filled in.
+   many they want. Account sections then pick the capes the account should
+   ideally have; every request fills the detail fields for its section, can add
+   **any other field** from a menu, and can rename the request channel (which is
+   prefilled from the title). If anything is rejected, **Edit again** reopens the
+   modal with everything still filled in.
 2. The bot opens a private request ticket and pings staff.
 3. Staff press **Accept** and name the request channel. The card is published
    there immediately.
@@ -50,28 +49,23 @@ to paste into `.env`.
 - Categories: **General** (the community channels are moved under it), Request Tickets,
   Seller Offers, Support Tickets, Fulfilled Requests, and one per request kind.
 
-## What can be requested
+## Sections and their detail fields
 
-| Kind | Detail fields it asks for |
+| Section | Detail fields it asks for |
 |---|---|
-| Minecraft Accounts | ranks/NWL, stats, incidents, payment, other |
-| Names | type of name, name changes, incidents, payment, other |
-| Cape Accounts | specific capes, how many capes, name changes, incidents, other |
-| Cape Codes | specific capes/codes, how many, payment, incidents, other |
-| Minecon | name changes, capes, incidents, payment, other |
-| Quicksells | bulk terms, stats, ranks, payment, other |
-| Discord Accounts | account age, badges/Nitro, handle, incidents, other |
-| Discord Servers | members, niche, vanity, incidents, other |
-| YouTube Channels | subscribers, niche, handle, incidents, other |
-| Social Accounts | followers, niche, handle, incidents, other |
-| Gaming Accounts | platform/game, stats, incidents, payment, other |
-| Other | platform, payment, incidents, other |
+| OGs | type of name, name changes, incidents, payment, other |
+| Semis | type of name, name changes, incidents, payment, other |
+| Capes | specific capes, how many capes, name changes, incidents, other |
+| Stats | ranks/NWL, stats, incidents, payment, other |
+| Quickbuy | bulk terms, stats, ranks, payment, other |
+| Other | stats, incidents, payment, platform, other |
 
-Every kind also carries the shared basics: title, description, budget range and
-amount, plus any other field picked from the "add anything else" menu. Detail fields are paragraph boxes, so requirements can be written out in
-full. An amount of 0 or 1 is not shown on the card, and the **Best offer** line
-only appears once a seller's offer has been accepted. Staff can add more kinds
-with `/request category-create`.
+Members cannot create sections; only staff can, with `/request category-create`.
+Every section also carries the shared basics (title, description, budget range,
+amount) and can pull in any other field - cape count, account age, badges,
+handle, members, niche, and so on - from the "add anything else" menu. Detail
+fields are paragraph boxes. An amount of 0 or 1 is not shown on the card, and
+the **Best offer** line only appears once a seller's offer has been accepted.
 
 ## Commands
 

@@ -7,7 +7,7 @@ const request = {
   id: 1,
   ign: '3-letter OG name',
   uuid: null,
-  category: 'name',
+  category: 'ogs',
   capes: [],
   info: {
     description: 'Clean 3cn, letters only.',
@@ -65,11 +65,20 @@ for (const [category, keys] of Object.entries(listings.FIELD_SETS)) {
   for (const key of keys) assert.ok(listings.FIELDS[key], `${category} names an unknown field ${key}`);
 }
 assert.deepStrictEqual(
-  listings.infoFieldsForCategory('youtube').map((field) => field.key),
-  ['members', 'niche', 'handle', 'incidents', 'extra'],
-  'a YouTube request asks about subscribers, not FKDR'
+  Object.keys(listings.FIELD_SETS),
+  ['ogs', 'semis', 'capes', 'stats', 'quickbuy', 'other'],
+  'the sections are fixed: only staff add more'
 );
-assert.ok(listings.wantsCapes('capes') && !listings.wantsCapes('discord'), 'only account requests pick capes');
+assert.deepStrictEqual(
+  listings.infoFieldsForCategory('stats').map((field) => field.key),
+  ['ranks', 'stats', 'incidents', 'payment', 'extra'],
+  'a stats request asks about ranks and stats'
+);
+assert.ok(listings.wantsCapes('capes') && !listings.wantsCapes('ogs'), 'only account sections pick capes');
+
+// The channel name is prefilled from the title and stays editable.
+const chan = listings.buildChannelNameModal('x', 'og-name').toJSON();
+assert.strictEqual(chan.components[0].components[0].value, 'og-name');
 
 // Whatever the kind, every remaining field can still be filled in by hand.
 for (const category of [...Object.keys(listings.FIELD_SETS), 'made-up-key']) {

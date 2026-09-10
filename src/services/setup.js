@@ -369,7 +369,7 @@ async function sortListingChannels(guild, categoryKey, categoryChannel = null, p
 
 // Kept for callers that only want the Stats category refreshed.
 async function sortStatListingChannels(guild, statCategory = null) {
-  return sortListingChannels(guild, 'mcacc', statCategory);
+  return sortListingChannels(guild, 'stats', statCategory);
 }
 
 async function sortAllListingChannels(guild, prefetched = null) {

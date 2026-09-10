@@ -33,27 +33,21 @@ const FIELDS = {
 for (const field of Object.values(FIELDS)) field.multiline = true;
 
 const FIELD_SETS = {
-  mcacc: ['ranks', 'stats', 'incidents', 'payment', 'extra'],
-  name: ['nametype', 'namechanges', 'incidents', 'payment', 'extra'],
+  ogs: ['nametype', 'namechanges', 'incidents', 'payment', 'extra'],
+  semis: ['nametype', 'namechanges', 'incidents', 'payment', 'extra'],
   capes: ['capenotes', 'capecount', 'namechanges', 'incidents', 'extra'],
-  capecode: ['capenotes', 'capecount', 'payment', 'incidents', 'extra'],
-  minecon: ['namechanges', 'capenotes', 'incidents', 'payment', 'extra'],
-  quicksell: ['quicksell', 'stats', 'ranks', 'payment', 'extra'],
-  discord: ['age', 'badges', 'handle', 'incidents', 'extra'],
-  dcserver: ['members', 'niche', 'handle', 'incidents', 'extra'],
-  youtube: ['members', 'niche', 'handle', 'incidents', 'extra'],
-  social: ['members', 'niche', 'handle', 'incidents', 'extra'],
-  gaming: ['platform', 'stats', 'incidents', 'payment', 'extra'],
-  other: ['platform', 'payment', 'incidents', 'extra'],
+  stats: ['ranks', 'stats', 'incidents', 'payment', 'extra'],
+  quickbuy: ['quicksell', 'stats', 'ranks', 'payment', 'extra'],
+  other: ['stats', 'incidents', 'payment', 'platform', 'extra'],
 };
 
 const DEFAULT_FIELD_SET = ['stats', 'incidents', 'payment', 'platform', 'extra'];
 
 // Categories where a cape picker makes sense at all.
-const CAPE_CATEGORIES = new Set(['mcacc', 'capes', 'capecode', 'minecon', 'quicksell']);
+const CAPE_CATEGORIES = new Set(['capes', 'stats', 'quickbuy']);
 
 // Categories where a Minecraft name change count is meaningful.
-const NAME_CHANGE_CATEGORIES = new Set(['name', 'capes', 'minecon', 'mcacc']);
+const NAME_CHANGE_CATEGORIES = new Set(['ogs', 'semis', 'capes', 'stats']);
 
 function infoFieldsForCategory(category) {
   const keys = FIELD_SETS[category] || DEFAULT_FIELD_SET;
@@ -104,10 +98,6 @@ function wantsCapes(category) {
 function buildBasicsModal(customId, values = {}) {
   const modal = new ModalBuilder().setCustomId(customId).setTitle('What are you looking for?');
   const rows = [
-    new TextInputBuilder().setCustomId('kind')
-      .setLabel('What kind of thing?').setStyle(TextInputStyle.Short)
-      .setRequired(true).setMaxLength(50)
-      .setPlaceholder(kindHint()),
     new TextInputBuilder().setCustomId('ign')
       .setLabel('Short title').setStyle(TextInputStyle.Short)
       .setRequired(true).setMaxLength(80)
@@ -131,18 +121,6 @@ function buildBasicsModal(customId, values = {}) {
     modal.addComponents(new ActionRowBuilder().addComponents(input));
   }
   return modal;
-}
-
-// A few example kinds for the modal placeholder, which Discord caps at 100.
-function kindHint() {
-  const labels = proxyCategories.list().map((category) => category.label);
-  let hint = '';
-  for (const label of labels) {
-    const next = hint ? `${hint}, ${label}` : label;
-    if (next.length > 96) break;
-    hint = next;
-  }
-  return `${hint}...`.slice(0, 100);
 }
 
 // "100" or "50-100" or "$50 - $100" or "" -> { min, max } as stored prices.
@@ -343,6 +321,34 @@ function compareListings(a, b) {
     }
   }
   return (a.created_at || 0) - (b.created_at || 0);
+}
+
+function buildCategorySelectRow(customId, categories = proxyCategories.list()) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder('Which section is this for?')
+    .addOptions(categories.slice(0, 25).map((category) => ({ label: category.label, value: category.key })));
+  return new ActionRowBuilder().addComponents(select);
+}
+
+// A channel name for the request, prefilled from its title exactly like the
+// one staff confirm when they accept it.
+function buildChannelNameModal(customId, suggestion) {
+  return new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle('Channel name')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('chname')
+          .setLabel('Name of the request channel')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(90)
+          .setPlaceholder(suggestion)
+          .setValue(String(suggestion || '').slice(0, 90))
+      )
+    );
 }
 
 // Modals cannot hold buttons, so the "hide it publicly" choice is a small
@@ -712,6 +718,7 @@ async function renderPublished(client, listingRow) {
 module.exports = {
   hasAvatar, wantsCapes, buildBasicsModal, displayBudget,
   extraFieldsForCategory, buildExtraFieldRow, buildPickedFieldsModal,
+  buildCategorySelectRow, buildChannelNameModal,
   FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
   formatNameChanges, nameChangeCount, threeCharClass, listingSortKey, compareListings,
   buildInfoModal, buildPriceModal, parseYesNo, parseBudgetRange, budgetInputValue, displayAmount,
