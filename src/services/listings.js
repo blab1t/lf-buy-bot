@@ -47,7 +47,7 @@ const FIELD_SETS = {
   other: ['platform', 'payment', 'incidents', 'extra'],
 };
 
-const DEFAULT_FIELD_SET = ['payment', 'incidents', 'extra'];
+const DEFAULT_FIELD_SET = ['stats', 'incidents', 'payment', 'platform', 'extra'];
 
 // Categories where a cape picker makes sense at all.
 const CAPE_CATEGORIES = new Set(['mcacc', 'capes', 'capecode', 'minecon', 'quicksell']);
@@ -58,6 +58,40 @@ const NAME_CHANGE_CATEGORIES = new Set(['name', 'capes', 'minecon', 'mcacc']);
 function infoFieldsForCategory(category) {
   const keys = FIELD_SETS[category] || DEFAULT_FIELD_SET;
   return keys.map((key) => FIELDS[key]);
+}
+
+// Every field that is not already in this kind's own modal, so a buyer can
+// fill in anything at all - stats on a Discord request, badges on a name.
+function extraFieldsForCategory(category) {
+  const used = new Set((FIELD_SETS[category] || DEFAULT_FIELD_SET));
+  return Object.values(FIELDS).filter((field) => !used.has(field.key));
+}
+
+// The menu of those extra fields. Filled ones say so, so a second pass edits
+// them instead of looking like they were never asked.
+function buildExtraFieldRow(customId, category, info = {}) {
+  const options = extraFieldsForCategory(category).slice(0, 25).map((field) => ({
+    label: field.label.slice(0, 100),
+    value: field.key,
+    description: info[field.key] ? String(info[field.key]).slice(0, 90) : undefined,
+  }));
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder('Add anything else you want to specify')
+    .setMinValues(1)
+    .setMaxValues(Math.min(5, options.length))
+    .addOptions(options);
+  return new ActionRowBuilder().addComponents(select);
+}
+
+// A modal holding exactly the fields that were picked (Discord allows 5).
+function buildPickedFieldsModal(customId, keys, values = {}) {
+  const modal = new ModalBuilder().setCustomId(customId).setTitle('More details');
+  for (const key of keys.slice(0, 5)) {
+    const field = FIELDS[key];
+    if (field) modal.addComponents(textInput(field, values[key]));
+  }
+  return modal;
 }
 
 function wantsCapes(category) {
@@ -677,6 +711,7 @@ async function renderPublished(client, listingRow) {
 
 module.exports = {
   hasAvatar, wantsCapes, buildBasicsModal, displayBudget,
+  extraFieldsForCategory, buildExtraFieldRow, buildPickedFieldsModal,
   FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
   formatNameChanges, nameChangeCount, threeCharClass, listingSortKey, compareListings,
   buildInfoModal, buildPriceModal, parseYesNo, parseBudgetRange, budgetInputValue, displayAmount,

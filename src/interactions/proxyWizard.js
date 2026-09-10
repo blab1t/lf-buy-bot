@@ -92,6 +92,23 @@ function capeStepPayload(data) {
   };
 }
 
+// The optional catch-all step: every field the kind's own modal did not ask
+// for, so nothing is impossible to describe.
+function extraStepPayload(data, lead = 'Details saved. Add anything else, or post the request.') {
+  return {
+    content: lead,
+    components: [
+      listings.buildExtraFieldRow('pw:more', data.category, data.info),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('pw:post').setLabel('Post request').setStyle(ButtonStyle.Success).setEmoji('📨'),
+        new ButtonBuilder().setCustomId('pw:cont').setLabel('Edit details').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('pw:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+    flags: EPH,
+  };
+}
+
 // Warns staff in the ticket when the same account is already listed, which
 // usually means two people are proxying it (or the owner forgot an old listing).
 async function warnIfDuplicate(client, channel, listing) {
@@ -284,9 +301,18 @@ async function handle(interaction, parts) {
     } catch (err) {
       return interaction.reply({ content: err.message, components: [retryRow()], flags: EPH });
     }
-    // An unknown kind is not a dead end: it is filed under Other and the words
-    // the buyer used are kept on the card.
-    const category = proxyCategories.resolve(data.raw.kind);
+    // Anything can be requested: a kind nobody asked for before is created on
+            // the spot, and only an unusable name falls back to Other.
+    let category = proxyCategories.resolve(data.raw.kind);
+    let created = false;
+    if (!category) {
+      try {
+        category = proxyCategories.create(data.raw.kind);
+        created = true;
+      } catch (err) {
+        category = null;
+      }
+    }
     const fallback = !category;
     data.category = category ? category.key : 'other';
     data.ign = data.raw.ign;
@@ -303,7 +329,9 @@ async function handle(interaction, parts) {
     };
     const kindLabel = (proxyCategories.resolve(data.category) || {}).label || data.category;
     const kindNote = fallback
-      ? `I do not have a **${data.raw.kind}** section, so this goes under **${kindLabel}** and your wording stays on the card.\n`
+      ? `**${data.raw.kind}** cannot be used as a section name, so this goes under **${kindLabel}** and your wording stays on the card.\n`
+      : created
+      ? `Added **${kindLabel}** as a new kind.\n`
       : '';
     await interaction.deferReply({ flags: EPH });
     if (!listings.wantsCapes(data.category)) {
@@ -343,9 +371,33 @@ async function handle(interaction, parts) {
       // A bare number in the name-changes field reads better as "12nc".
       data.info[field.key] = field.key === 'namechanges' ? listings.formatNameChanges(value) : value;
     }
+    return interaction.reply(extraStepPayload(data));
+  }
+
+  // Any field from the registry can be added, whatever the kind is.
+  if (action === 'more') {
+    if (!data || !data.info) return expired(interaction);
+    data.moreKeys = interaction.values;
+    return interaction.showModal(listings.buildPickedFieldsModal('pw:morem', data.moreKeys, data.info));
+  }
+
+  if (action === 'morem') {
+    if (!data || !data.info || !data.moreKeys) return expired(interaction);
+    for (const key of data.moreKeys) {
+      const field = listings.FIELDS[key];
+      if (!field) continue;
+      const value = interaction.fields.getTextInputValue(key).trim();
+      data.info[key] = key === 'namechanges' ? listings.formatNameChanges(value) : value;
+    }
+    data.moreKeys = null;
+    return interaction.reply(extraStepPayload(data, 'Added. Anything else, or post it?'));
+  }
+
+  if (action === 'post') {
+    if (!data || !data.info) return expired(interaction);
     await interaction.deferReply({ flags: EPH });
-    // A wizard started from `/proxy attach` or an import is already bound to its
-    // ticket; a fresh one may join a ticket the user already has open.
+    // A wizard started from `/request attach` or an import is already bound to
+    // its ticket; a fresh one may join a ticket the user already has open.
     if (data.boundTicketChannelId) return finishProxy(interaction, data);
     const open = db.openTicketsForUser(interaction.user.id);
     if (!open.length) return finishProxy(interaction, data);

@@ -70,6 +70,19 @@ assert.deepStrictEqual(
   'a YouTube request asks about subscribers, not FKDR'
 );
 assert.ok(listings.wantsCapes('capes') && !listings.wantsCapes('discord'), 'only account requests pick capes');
+
+// Whatever the kind, every remaining field can still be filled in by hand.
+for (const category of [...Object.keys(listings.FIELD_SETS), 'made-up-key']) {
+  const asked = new Set(listings.infoFieldsForCategory(category).map((field) => field.key));
+  const extra = listings.extraFieldsForCategory(category).map((field) => field.key);
+  assert.ok(extra.length > 0, `${category} offers no extra fields`);
+  assert.ok(extra.every((key) => !asked.has(key)), `${category} offers a field it already asked for`);
+  assert.strictEqual(asked.size + extra.length, Object.keys(listings.FIELDS).length,
+    `${category} cannot reach every field`);
+  assert.ok(extra.length <= 25, `${category} has more extra fields than a select menu holds`);
+}
+const picked = listings.buildPickedFieldsModal('x', ['stats', 'badges'], { stats: '300 stars' }).toJSON();
+assert.strictEqual(picked.components.length, 2, 'the modal holds exactly the picked fields');
 // An unknown or custom category still has a usable field set.
 assert.ok(listings.infoFieldsForCategory('made-up-key').length > 0);
 

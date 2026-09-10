@@ -185,29 +185,28 @@ async function handle(interaction, parts) {
       parent: parent ? parent.id : undefined,
       permissionOverwrites: await listingChannelOverwrites(guild),
     });
-    const updated = db.updateListing(listing.id, { status: 'accepted', listing_channel_id: channel.id });
+    // No "write your content, then press Finish" step: the card goes up with
+    // the channel, and staff can still edit it from the ticket afterwards.
+    const published = await channel.send(listings.listingPayload({ ...listing, status: 'published' }, 'published'));
+    const updated = db.updateListing(listing.id, {
+      status: 'published', listing_channel_id: channel.id, listing_message_id: published.id,
+    });
     await setup.organizeListing(guild, updated);
-    // Refresh the ticket card so its review buttons become Mark Sold / Edit.
     await listings.renderPreview(interaction.client, updated);
     require('../services/sync').emitListingUpdate(updated);
     await sendAcceptedNotice(interaction.client, db.parseListing(updated), interaction.user.id, channel.id);
-    await channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(config.EMBED_COLOR)
-          .setDescription(
-            'Write anything else about what you are looking for (screenshots, examples, whatever helps). ' +
-            'When you are done, press Finish and the request card gets posted below.'
-          ),
-      ],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`rv:finish:${listing.id}`).setLabel('Finish').setStyle(ButtonStyle.Success).setEmoji('🏁')
-        ),
-      ],
-    });
+    if (db.getSetting(`ping_on_publish_${listing.id}`)) {
+      const pingRole = db.getPingRoleByRef(`cat:${listing.category}`);
+      if (pingRole) {
+        await channel.send({
+          content: `<@&${pingRole.role_id}>`,
+          allowedMentions: { roles: [pingRole.role_id] },
+        }).catch(() => {});
+      }
+      db.delSetting(`ping_on_publish_${listing.id}`);
+    }
     return interaction.editReply({
-      content: `Request channel created: <#${channel.id}>. Write your content there, then press Finish.`,
+      content: `Request published in <#${channel.id}>.`,
     });
   }
 
