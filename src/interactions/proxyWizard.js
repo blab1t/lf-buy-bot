@@ -320,8 +320,8 @@ async function handle(interaction, parts) {
     // A best offer only exists once a seller actually offers something.
     data.co = 'Offer';
     data.basics = {
-      description: data.raw.description.slice(0, 1000),
-      amount: data.raw.amount.slice(0, 40),
+      description: listings.cleanFieldValue('description', data.raw.description).slice(0, 1000),
+      amount: listings.cleanFieldValue('amount', data.raw.amount).slice(0, 40),
     };
     // The channel name follows the title until the buyer changes it.
     data.channelName = tickets.sanitizeListingChannelName(data.ign);
@@ -353,9 +353,7 @@ async function handle(interaction, parts) {
     // The detail fields plus everything the basics modal already collected.
     data.info = { ...(data.basics || {}) };
     for (const field of listings.infoFieldsForCategory(data.category)) {
-      const value = interaction.fields.getTextInputValue(field.key).trim();
-      // A bare number in the name-changes field reads better as "12nc".
-      data.info[field.key] = field.key === 'namechanges' ? listings.formatNameChanges(value) : value;
+      data.info[field.key] = listings.cleanFieldValue(field.key, interaction.fields.getTextInputValue(field.key));
     }
     return interaction.reply(extraStepPayload(data));
   }
@@ -370,10 +368,8 @@ async function handle(interaction, parts) {
   if (action === 'morem') {
     if (!data || !data.info || !data.moreKeys) return expired(interaction);
     for (const key of data.moreKeys) {
-      const field = listings.FIELDS[key];
-      if (!field) continue;
-      const value = interaction.fields.getTextInputValue(key).trim();
-      data.info[key] = key === 'namechanges' ? listings.formatNameChanges(value) : value;
+      if (!listings.FIELDS[key]) continue;
+      data.info[key] = listings.cleanFieldValue(key, interaction.fields.getTextInputValue(key));
     }
     data.moreKeys = null;
     return interaction.reply(extraStepPayload(data, 'Added. Anything else, or post it?'));

@@ -14,19 +14,19 @@ const proxyCategories = require('./proxyCategories');
 const FIELDS = {
   ranks: { key: 'ranks', label: 'Wanted ranks / NWL', placeholder: 'MVP+ or higher | NWL 100+' },
   stats: { key: 'stats', label: 'Wanted stats', placeholder: 'BW 300+ stars, 3+ FKDR | SW any' },
-  incidents: { key: 'incidents', label: 'Incidents (bans, history, access)', placeholder: 'Unbanned, clean history, full access only' },
-  namechanges: { key: 'namechanges', label: 'Name changes allowed', placeholder: '0nc only, or max 2' },
-  nametype: { key: 'nametype', label: 'Type of name', placeholder: '3cn digits, 4-letter word, OG single word' },
-  capecount: { key: 'capecount', label: 'How many capes', placeholder: 'at least 3, or any' },
-  capenotes: { key: 'capenotes', label: 'Specific capes / cape codes', placeholder: 'Migrator + Vanilla, or an unredeemed code' },
-  quicksell: { key: 'quicksell', label: 'Quicksell / bulk terms', placeholder: 'buying 10+ in bulk, price per account' },
-  age: { key: 'age', label: 'Account age / creation date', placeholder: '2015 or older' },
-  badges: { key: 'badges', label: 'Badges / Nitro / boosts', placeholder: 'Early Supporter, HypeSquad, Nitro' },
-  handle: { key: 'handle', label: 'Wanted handle / vanity', placeholder: '@short, 3-letter vanity' },
-  members: { key: 'members', label: 'Members / subscribers / followers', placeholder: '10k+, real not botted' },
-  niche: { key: 'niche', label: 'Niche / content', placeholder: 'gaming, monetized, English audience' },
-  platform: { key: 'platform', label: 'Platform / game', placeholder: 'Steam, Valorant, Xbox gamertag' },
-  payment: { key: 'payment', label: 'Payment methods you can use', placeholder: 'LTC, BTC, PayPal F&F' },
+  incidents: { key: 'incidents', label: 'Incidents (bans, history, access)', prefix: 'Status', placeholder: 'Unbanned, clean history, full access only' },
+  namechanges: { key: 'namechanges', label: 'Name changes allowed', prefix: 'Name changes', placeholder: '0nc only, or max 2' },
+  nametype: { key: 'nametype', label: 'Type of name', prefix: 'Name type', placeholder: '3cn digits, 4-letter word, OG single word' },
+  capecount: { key: 'capecount', label: 'How many capes', prefix: 'Capes', placeholder: 'at least 3, or any' },
+  capenotes: { key: 'capenotes', label: 'Specific capes / cape codes', prefix: 'Capes wanted', placeholder: 'Migrator + Vanilla, or an unredeemed code' },
+  quicksell: { key: 'quicksell', label: 'Quicksell / bulk terms', prefix: 'Bulk', placeholder: 'buying 10+ in bulk, price per account' },
+  age: { key: 'age', label: 'Account age / creation date', prefix: 'Age', placeholder: '2015 or older' },
+  badges: { key: 'badges', label: 'Badges / Nitro / boosts', prefix: 'Badges', placeholder: 'Early Supporter, HypeSquad, Nitro' },
+  handle: { key: 'handle', label: 'Wanted handle / vanity', prefix: 'Handle', placeholder: '@short, 3-letter vanity' },
+  members: { key: 'members', label: 'Members / subscribers / followers', prefix: 'Size', placeholder: '10k+, real not botted' },
+  niche: { key: 'niche', label: 'Niche / content', prefix: 'Niche', placeholder: 'gaming, monetized, English audience' },
+  platform: { key: 'platform', label: 'Platform / game', prefix: 'Platform', placeholder: 'Steam, Valorant, Xbox gamertag' },
+  payment: { key: 'payment', label: 'Payment methods you can use', prefix: 'Payment method', placeholder: 'LTC, BTC, PayPal F&F' },
   extra: { key: 'extra', label: 'Other requirements (one per line)', placeholder: 'One requirement per line' },
 };
 // Every detail field is a paragraph box: requirements are sentences, not tags.
@@ -48,6 +48,40 @@ const CAPE_CATEGORIES = new Set(['capes', 'stats', 'quickbuy']);
 
 // Categories where a Minecraft name change count is meaningful.
 const NAME_CHANGE_CATEGORIES = new Set(['ogs', 'semis', 'capes', 'stats']);
+
+// "no", "none", "-" and friends mean the buyer does not care, so they are
+// stored as nothing at all instead of showing up as a requirement.
+const BLANK_ANSWERS = new Set([
+  'no', 'non', 'none', 'nope', 'nah', 'n/a', 'na', 'nan', 'nil', 'null',
+  'nein', 'keine', 'kein', 'k.a.', 'ka', '-', '--', '/', 'x', '.',
+]);
+
+function isBlankAnswer(value) {
+  const text = String(value == null ? '' : value).trim().toLowerCase();
+  if (!text) return true;
+  return BLANK_ANSWERS.has(text.replace(/[.!]+$/, ''));
+}
+
+// What actually gets stored for a field: blank answers collapse to '', and a
+// bare number in the name-changes field still reads as "12nc".
+function cleanFieldValue(key, value) {
+  const text = String(value == null ? '' : value).trim();
+  if (isBlankAnswer(text)) return '';
+  return key === 'namechanges' ? formatNameChanges(text) : text;
+}
+
+// One bullet per line the buyer wrote, with their own bullet characters kept
+// rather than doubled, and the field's label in front of the first line when
+// the answer would be meaningless on its own ("LTC, BTC" -> "Payment method: ...").
+function fieldBullets(field, value) {
+  if (isBlankAnswer(value)) return [];
+  const lines = String(value).split(/\r?\n/)
+    .map((line) => line.trim().replace(/^(?:[-*•‣▪]\s*)+/, '').trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const prefix = field && field.prefix ? `${field.prefix}: ` : '';
+  return lines.map((line, index) => `- ${index === 0 ? prefix : ''}${line}`);
+}
 
 function infoFieldsForCategory(category) {
   const keys = FIELD_SETS[category] || DEFAULT_FIELD_SET;
@@ -414,17 +448,15 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
   // Header: big IGN with the account head beside it, info as a plain
   // bullet list underneath (no field labels), capes as emoji only.
   const bullets = [];
+  // The kind's own fields first, then anything the buyer added by hand.
+  const shown = new Set();
   for (const field of infoFieldsForCategory(listing.category)) {
-    const value = listing.info ? listing.info[field.key] : null;
-    if (!value || !String(value).trim()) continue;
-    if (field.key === 'extra') {
-      for (const line of String(value).split(/\r?\n/)) {
-        const cleanLine = line.trim().replace(/^(?:-\s*)+/, '');
-        if (cleanLine) bullets.push(`- ${cleanLine}`);
-      }
-    } else {
-      bullets.push(`- ${String(value).trim()}`);
-    }
+    shown.add(field.key);
+    bullets.push(...fieldBullets(field, listing.info ? listing.info[field.key] : null));
+  }
+  for (const field of Object.values(FIELDS)) {
+    if (shown.has(field.key)) continue;
+    bullets.push(...fieldBullets(field, listing.info ? listing.info[field.key] : null));
   }
   if (listing.capes && listing.capes.length) {
     bullets.push(`- Wants ${listing.capes.map((key) => capes.capeEmoji(key)).join(' ')}`);
@@ -521,11 +553,11 @@ function buildListingEmbed(listing, { imported = false } = {}) {
     );
   if (hasAvatar(listing)) embed.setThumbnail(avatarUrl(listing));
   for (const field of infoFieldsForCategory(listing.category)) {
-    const value = listing.info ? String(listing.info[field.key] || '').trim() : '';
-    if (!value) continue;
+    const lines = fieldBullets(field, listing.info ? listing.info[field.key] : null);
+    if (!lines.length) continue;
     embed.addFields({
       name: field.key === 'extra' ? 'Other requirements' : field.label,
-      value: value.slice(0, 1024),
+      value: lines.join('\n').slice(0, 1024),
       inline: false,
     });
   }
@@ -659,6 +691,7 @@ async function renderPublished(client, listingRow) {
 
 module.exports = {
   hasAvatar, wantsCapes, buildBasicsModal, displayBudget,
+  isBlankAnswer, cleanFieldValue, fieldBullets,
   extraFieldsForCategory, buildExtraFieldRow, buildPickedFieldsModal,
   buildCategorySelectRow, buildChannelNameModal,
   FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,

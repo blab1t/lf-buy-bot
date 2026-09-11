@@ -308,8 +308,8 @@ async function handle(interaction, parts) {
     await interaction.deferReply({ flags: EPH });
     const info = {
       ...listing.info,
-      description: interaction.fields.getTextInputValue('description').trim().slice(0, 1000),
-      amount: interaction.fields.getTextInputValue('amount').trim().slice(0, 40),
+      description: listings.cleanFieldValue('description', interaction.fields.getTextInputValue('description')).slice(0, 1000),
+      amount: listings.cleanFieldValue('amount', interaction.fields.getTextInputValue('amount')).slice(0, 40),
     };
     db.updateListing(listing.id, {
       ign, bin: budget, info, ...(category ? { category: category.key } : {}),
@@ -329,8 +329,7 @@ async function handle(interaction, parts) {
     // show, so editing the requirements never wipes them.
     const info = { ...listing.info };
     for (const field of listings.infoFieldsForCategory(listing.category)) {
-      const value = interaction.fields.getTextInputValue(field.key).trim();
-      info[field.key] = field.key === 'namechanges' ? listings.formatNameChanges(value) : value;
+      info[field.key] = listings.cleanFieldValue(field.key, interaction.fields.getTextInputValue(field.key));
     }
     db.updateListing(listing.id, { info });
     await rerender(interaction.client, listing.id);

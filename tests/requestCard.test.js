@@ -14,6 +14,9 @@ const request = {
     amount: '2',
     nametype: '3cn letters',
     namechanges: '0nc',
+    payment: 'LTC, BTC',
+    incidents: 'no',
+    extra: '- unbanned\nno hypixel ban\n* full access',
   },
   co: 'Offer',
   bin: '$100',
@@ -36,6 +39,28 @@ assert.ok(text.includes('ls:offer'), 'sellers can still offer an account');
 assert.ok(text.includes('Clean 3cn'), 'the description belongs on the card');
 assert.ok(text.includes('Wants **2**'), 'the wanted amount belongs on the card');
 assert.ok(!text.includes('PROXY') && !text.includes('BIN:'), 'no proxy/BIN wording may survive');
+
+// Multiline answers become one bullet per line, without doubling the bullets
+// the buyer typed themselves.
+assert.ok(text.includes('- unbanned'), 'an already-bulleted line keeps one bullet');
+assert.ok(!text.includes('- - unbanned'), 'bullets are never doubled');
+assert.ok(text.includes('- no hypixel ban'), 'a plain line gets a bullet');
+assert.ok(text.includes('- full access'), 'other bullet characters are normalised');
+
+// Fields that mean nothing on their own say what they are.
+assert.ok(text.includes('- Payment method: LTC, BTC'), 'the payment line is labelled');
+assert.ok(text.includes('- Name type: 3cn letters'), 'the name type is labelled');
+assert.ok(text.includes('- Name changes: 0nc'), 'the name changes are labelled');
+
+// "no" means the buyer does not care, so nothing is shown.
+assert.ok(!text.includes('Status:'), 'a "no" answer is dropped from the card');
+for (const blank of ['no', 'none', '-', 'n/a', 'Keine', ' NOPE ', '']) {
+  assert.ok(listings.isBlankAnswer(blank), `${blank} counts as blank`);
+  assert.strictEqual(listings.cleanFieldValue('incidents', blank), '');
+}
+assert.ok(!listings.isBlankAnswer('any'), '"any" is a real answer');
+assert.strictEqual(listings.cleanFieldValue('namechanges', '12'), '12nc');
+assert.strictEqual(listings.cleanFieldValue('payment', '  LTC '), 'LTC');
 
 // One fixed amount, no range.
 assert.strictEqual(listings.displayBudget(request), '$100');
