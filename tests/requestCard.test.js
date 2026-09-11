@@ -11,7 +11,6 @@ const request = {
   capes: [],
   info: {
     description: 'Clean 3cn, letters only.',
-    price_min: '$50',
     amount: '2',
     nametype: '3cn letters',
     namechanges: '0nc',
@@ -28,26 +27,22 @@ const request = {
 const text = JSON.stringify(listings.buildListingContainer(request, 'published').toJSON());
 
 assert.ok(text.includes('WANTED'), 'published card must be labelled WANTED');
-assert.ok(!text.includes('Best offer'), 'no best-offer line until a seller actually offers');
+// Offers live in tickets only: nothing about them reaches the public card.
 const offered = JSON.stringify(listings.buildListingContainer({ ...request, co: '$80' }, 'published').toJSON());
-assert.ok(offered.includes('Best offer'), 'an accepted offer does show up');
+assert.ok(!text.includes('Best offer') && !offered.includes('Best offer'), 'offers stay out of the channel');
+assert.ok(text.includes('Paying: **$100**'), 'the card states what the buyer pays');
+assert.ok(!text.includes('ls:watch') && !text.includes('ls:bin'), 'no Follow and no budget-sale button');
+assert.ok(text.includes('ls:offer'), 'sellers can still offer an account');
 assert.ok(text.includes('Clean 3cn'), 'the description belongs on the card');
 assert.ok(text.includes('Wants **2**'), 'the wanted amount belongs on the card');
 assert.ok(!text.includes('PROXY') && !text.includes('BIN:'), 'no proxy/BIN wording may survive');
 
-// A budget range renders as "from - to"; one bound alone renders alone.
-assert.strictEqual(listings.displayBudget(request), '$50 - $100');
-assert.strictEqual(listings.displayBudget({ ...request, info: {} }), '$100');
-assert.strictEqual(listings.displayBudget({ bin: 'Offer', info: { price_min: '$50' } }), 'from $50');
+// One fixed amount, no range.
+assert.strictEqual(listings.displayBudget(request), '$100');
 assert.strictEqual(listings.displayBudget({ bin: 'Offer', info: {} }), 'Offer');
-
-// A budget is typed as one number or one range.
-assert.deepStrictEqual(listings.parseBudgetRange('50-100'), { min: '$50', max: '$100' });
-assert.deepStrictEqual(listings.parseBudgetRange('100'), { min: 'Offer', max: '$100' });
-assert.deepStrictEqual(listings.parseBudgetRange(''), { min: 'Offer', max: 'Offer' });
-assert.throws(() => listings.parseBudgetRange('100-50'), /runs backwards/);
-assert.throws(() => listings.parseBudgetRange('a lot'));
-assert.strictEqual(listings.budgetInputValue(request), '$50 - $100');
+assert.strictEqual(listings.budgetInputValue(request), '$100');
+assert.strictEqual(listings.budgetInputValue({ bin: 'Offer' }), '');
+assert.ok(!listings.parseBudgetRange, 'the range parser is gone');
 
 // Wanting one (or none) is the default and stays off the card.
 assert.strictEqual(listings.displayAmount(request), '2');

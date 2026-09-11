@@ -1343,7 +1343,7 @@ async function handleBin(interaction) {
     return interaction.reply({ content: err.message, flags: EPH });
   }
   if (amount === listing.bin) {
-    return interaction.reply({ content: `The budget of **${listings.displayIgn(listing)}** is already **${listings.displayUsdPrice(amount)}**.`, flags: EPH });
+    return interaction.reply({ content: `**${listings.displayIgn(listing)}** already pays **${listings.displayUsdPrice(amount)}**.`, flags: EPH });
   }
   await interaction.deferReply({ flags: EPH });
   const verb = listings.priceChangeVerb(listing.bin, amount);
@@ -1352,9 +1352,8 @@ async function handleBin(interaction) {
   await listings.renderPreview(interaction.client, updated).catch(() => {});
   sync.emitListingUpdate(updated);
   if (interaction.options.getBoolean('announce') !== false) {
-    await listings.announceListingUpdate(interaction.client, updated, `Budget ${verb} to **${listings.displayUsdPrice(amount)}**`);
+    await listings.announceListingUpdate(interaction.client, updated, `Now paying **${listings.displayUsdPrice(amount)}**`);
   }
-  await listings.notifyWatchers(interaction.client, updated, `Budget ${verb} to **${listings.displayUsdPrice(amount)}**.`).catch(() => {});
   logs.listing(interaction.client, `Budget ${verb}`, listing, interaction.user.id, [
     { name: 'Old', value: listings.displayUsdPrice(listing.bin), inline: true },
     { name: 'New', value: listings.displayUsdPrice(amount), inline: true },
@@ -1450,8 +1449,7 @@ async function handleOffer(interaction) {
     await listings.renderPublished(interaction.client, updated);
     await listings.renderPreview(interaction.client, updated);
     sync.emitListingUpdate(updated);
-    await listings.announceListingUpdate(interaction.client, updated, `Current offer: **${listings.displayUsdPrice(amount)}**`);
-    await listings.notifyWatchers(interaction.client, updated, `current offer is now **${listings.displayUsdPrice(amount)}**.`).catch(() => {});
+
     await listings.notifyOutbid(interaction.client, updated, amount).catch(() => {});
     logs.listing(interaction.client, 'best offer changed', listing, interaction.user.id, [
       { name: 'Old', value: listings.displayUsdPrice(listing.co), inline: true },
@@ -1551,7 +1549,6 @@ async function handleOffer(interaction) {
       await listings.renderPublished(interaction.client, updated);
       await listings.renderPreview(interaction.client, updated);
       sync.emitListingUpdate(updated);
-      await listings.announceListingUpdate(interaction.client, updated, `Current offer: **${listings.displayUsdPrice(amount)}**`);
       await listings.notifyOutbid(interaction.client, updated, amount, { excludeUserId: buyer.id }).catch(() => {});
       note = ' best offer updated.';
     }

@@ -299,7 +299,7 @@ async function handle(interaction, parts) {
     if (!ign) return interaction.reply({ content: 'The title cannot be empty.', flags: EPH });
     let budget;
     try {
-      budget = listings.parseBudgetRange(interaction.fields.getTextInputValue('budget'));
+      budget = listings.normalizeUsdPrice(interaction.fields.getTextInputValue('budget'));
     } catch (err) {
       return interaction.reply({ content: err.message, flags: EPH });
     }
@@ -308,12 +308,11 @@ async function handle(interaction, parts) {
     await interaction.deferReply({ flags: EPH });
     const info = {
       ...listing.info,
-      price_min: budget.min,
       description: interaction.fields.getTextInputValue('description').trim().slice(0, 1000),
       amount: interaction.fields.getTextInputValue('amount').trim().slice(0, 40),
     };
     db.updateListing(listing.id, {
-      ign, bin: budget.max, info, ...(category ? { category: category.key } : {}),
+      ign, bin: budget, info, ...(category ? { category: category.key } : {}),
     });
     if (category && category.key !== listing.category) {
       await setup.organizeListing(interaction.guild, db.getListing(listing.id)).catch(() => {});
@@ -326,7 +325,7 @@ async function handle(interaction, parts) {
 
   if (action === 'editinfo') {
     await interaction.deferReply({ flags: EPH });
-    // Keep the basics (description, price_min, amount) that this modal does not
+    // Keep the basics (description, amount) that this modal does not
     // show, so editing the requirements never wipes them.
     const info = { ...listing.info };
     for (const field of listings.infoFieldsForCategory(listing.category)) {

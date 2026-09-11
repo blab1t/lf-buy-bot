@@ -24,7 +24,7 @@ to paste into `.env`.
 
 1. A member presses **Create Request** (or runs `/request create`), picks the
    section (OGs, Semis, Capes, Stats, Quickbuy, Other), then fills one modal:
-   a short title, a description, a budget (`100` or a range `50-100`) and how
+   a short title, a description, what they pay (one fixed USD amount) and how
    many they want. Account sections then pick the capes the account should
    ideally have; every request fills the detail fields for its section, can add
    **any other field** from a menu, and can rename the request channel (which is
@@ -33,10 +33,11 @@ to paste into `.env`.
 2. The bot opens a private request ticket and pings staff.
 3. Staff press **Accept** and name the request channel. The card is published
    there immediately.
-4. Sellers press **Offer an account** (account + asking price) or **Sell at
-   budget**. Each offer opens a seller ticket and waits for staff approval.
-5. An accepted offer becomes the request's **Best offer** and is announced on the
-   card. Undercut sellers are told without learning who undercut them.
+4. Sellers press **Offer an account** (account + asking price). Each offer opens
+   a seller ticket and waits for staff approval.
+5. Everything about offers stays inside tickets: the public card only ever shows
+   what the buyer pays. Undercut sellers are told in their own ticket, without
+   learning who undercut them.
 6. When the buyer has their account, **Mark Fulfilled** moves the request into the
    Fulfilled Requests category.
 
@@ -61,11 +62,10 @@ to paste into `.env`.
 | Other | stats, incidents, payment, platform, other |
 
 Members cannot create sections; only staff can, with `/request category-create`.
-Every section also carries the shared basics (title, description, budget range,
-amount) and can pull in any other field - cape count, account age, badges,
+Every section also carries the shared basics (title, description, paying amount,
+amount wanted) and can pull in any other field - cape count, account age, badges,
 handle, members, niche, and so on - from the "add anything else" menu. Detail
-fields are paragraph boxes. An amount of 0 or 1 is not shown on the card, and
-the **Best offer** line only appears once a seller's offer has been accepted.
+fields are paragraph boxes. An amount of 0 or 1 is not shown on the card.
 
 ## Commands
 
@@ -75,7 +75,7 @@ the **Best offer** line only appears once a seller's offer has been accepted.
 | `/request edit`, `delete`, `reassign`, `restore`, `refresh`, `publish`, `check`, `attach`, `transfer` | staff | Manage requests on the board. |
 | `/request category-*`, `sold-category`, `organize` | staff | Manage request categories and channel layout. |
 | `/offer list/set/clear/add/remove/refresh` | staff | Manage seller offers on a request. |
-| `/budget` | staff | Change a request's budget. |
+| `/budget` | staff | Change what a request pays. |
 | `/panel`, `/setup`, `/verify`, `/close`, `/inactive`, `/add`, `/role`, `/vouch`, `/ticket` | staff | Panels, setup, tickets and vouches. |
 | `/giveaway`, `/invites`, `/pingroles`, `/embed`, `/resendembed` | staff | Community tooling. |
 | `/linkfilter`, `/logchannel`, `/channelperms`, `/categories`, `/backup`, `/recover`, `/transcript`, `/find`, `/link`, `/angels` | staff | Moderation, logging and data tools. |

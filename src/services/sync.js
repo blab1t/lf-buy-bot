@@ -112,18 +112,14 @@ async function applySnapshot(client, uuid, snap) {
   // "published" would strand it with no card and no Accept button.
   if ((snap.status === 'published' || snap.status === 'sold') && current.listing_channel_id) fields.status = snap.status;
   const updated = db.updateListing(current.id, fields);
-  // Price changes made on another server get the same announcement here, so
-  // every server's listing channel shows the same C/O and BIN history.
+  // Offers stay inside tickets, so only a changed price is announced publicly.
+  // Sellers who were undercut are still told in their own ticket.
   if (current.listing_channel_id) {
     if (snap.co !== current.co) {
-      await listings.announceListingUpdate(client, updated, `Current offer: **${listings.displayUsdPrice(snap.co)}**`).catch(() => {});
-      await listings.notifyWatchers(client, updated, `current offer is now **${listings.displayUsdPrice(snap.co)}**.`).catch(() => {});
       await listings.notifyOutbid(client, updated, snap.co).catch(() => {});
     }
     if (snap.bin !== current.bin) {
-      const verb = listings.priceChangeVerb(current.bin, snap.bin);
-      await listings.announceListingUpdate(client, updated, `Bin ${verb} to **${listings.displayUsdPrice(snap.bin)}**`).catch(() => {});
-      await listings.notifyWatchers(client, updated, `BIN ${verb} to **${listings.displayUsdPrice(snap.bin)}**.`).catch(() => {});
+      await listings.announceListingUpdate(client, updated, `Now paying **${listings.displayUsdPrice(snap.bin)}**`).catch(() => {});
     }
   }
   await listings.renderPublished(client, updated).catch(() => {});

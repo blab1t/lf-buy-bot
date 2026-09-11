@@ -107,8 +107,8 @@ function buildBasicsModal(customId, values = {}) {
       .setRequired(false).setMaxLength(1000)
       .setPlaceholder('Anything a seller should know before offering'),
     new TextInputBuilder().setCustomId('budget')
-      .setLabel('Budget in USD (a number or a range)').setStyle(TextInputStyle.Short)
-      .setRequired(false).setMaxLength(64).setPlaceholder('100, or 50-100; blank = open to offers'),
+      .setLabel('What you pay (USD)').setStyle(TextInputStyle.Short)
+      .setRequired(false).setMaxLength(64).setPlaceholder('e.g. 100; blank = open to offers'),
     new TextInputBuilder().setCustomId('amount')
       .setLabel('How many do you want?').setStyle(TextInputStyle.Short)
       .setRequired(false).setMaxLength(40).setPlaceholder('blank or 1 for a single one, 10+ for bulk'),
@@ -123,32 +123,9 @@ function buildBasicsModal(customId, values = {}) {
   return modal;
 }
 
-// "100" or "50-100" or "$50 - $100" or "" -> { min, max } as stored prices.
-// Throws the same message as a single price when the text makes no sense.
-function parseBudgetRange(value) {
-  const text = String(value || '').trim();
-  if (!text || /^offer$/i.test(text)) return { min: 'Offer', max: 'Offer' };
-  const parts = text.split(/\s*(?:-|–|—|to|bis)\s*/i).filter((part) => part.trim());
-  if (parts.length > 2) {
-    throw new Error('Write the budget as one number (100) or one range (50-100).');
-  }
-  if (parts.length === 1) return { min: 'Offer', max: normalizeUsdPrice(parts[0]) };
-  const min = normalizeUsdPrice(parts[0]);
-  const max = normalizeUsdPrice(parts[1]);
-  if (usdToNumber(min) > usdToNumber(max)) {
-    throw new Error(`Your range runs backwards: **${min}** is above **${max}**.`);
-  }
-  return { min, max };
-}
-
-// What the buyer typed back into one editable field.
+// What the buyer typed back into the editable field.
 function budgetInputValue(listing) {
-  const min = listing.info ? listing.info.price_min : null;
-  const max = listing.bin;
-  if (min && min !== 'Offer' && max && max !== 'Offer') return `${min} - ${max}`;
-  if (max && max !== 'Offer') return String(max);
-  if (min && min !== 'Offer') return String(min);
-  return '';
+  return listing.bin && listing.bin !== 'Offer' ? String(listing.bin) : '';
 }
 
 // Wanting one of something is the default, so only a real quantity is shown.
@@ -161,13 +138,9 @@ function displayAmount(listing) {
   return text;
 }
 
-// "$50 - $100", "$100" or "Offer", depending on which bounds exist.
+// What the buyer pays, or "Offer" when they left it open.
 function displayBudget(listing) {
-  const max = displayUsdPrice(listing.bin);
-  const min = listing.info && listing.info.price_min ? displayUsdPrice(listing.info.price_min) : null;
-  if (min && max !== 'Offer' && min !== max) return `${min} - ${max}`;
-  if (min && max === 'Offer') return `from ${min}`;
-  return max;
+  return displayUsdPrice(listing.bin);
 }
 
 function avatarUrl(listing) {
@@ -486,12 +459,10 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
   container.addSeparatorComponents(
     new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Large).setDivider(true)
   );
-  // The "best offer" line only exists once a seller has actually offered.
-  const offerLine = displayUsdPrice(listing.co) === 'Offer'
-    ? ''
-    : `\nBest offer: **${displayUsdPrice(listing.co)}**`;
+  // Offers live in tickets only, so the public card shows the price and nothing
+  // about who offered what.
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`Budget: **${displayBudget(listing)}**${offerLine}`)
+    new TextDisplayBuilder().setContent(`Paying: **${displayBudget(listing)}**`)
   );
   if (mode === 'sold' || !listing.hide_proxy_label) {
     container.addSeparatorComponents(
@@ -519,14 +490,9 @@ function buildListingContainer(listing, mode, { revealIgn = false } = {}) {
       )
     );
   } else if (mode === 'published') {
-    const watchers = db.watcherCount(listing.id);
     container.addActionRowComponents(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`ls:offer:${listing.id}`).setLabel('Offer an account').setStyle(ButtonStyle.Primary).setEmoji('💰'),
-        new ButtonBuilder().setCustomId(`ls:bin:${listing.id}`).setLabel('Sell at budget').setStyle(ButtonStyle.Success).setEmoji('🛒'),
-        new ButtonBuilder().setCustomId(`ls:watch:${listing.id}`)
-          .setLabel(watchers ? `Follow (${watchers})` : 'Follow')
-          .setStyle(ButtonStyle.Secondary).setEmoji('🔔')
+        new ButtonBuilder().setCustomId(`ls:offer:${listing.id}`).setLabel('Offer an account').setStyle(ButtonStyle.Primary).setEmoji('💰')
       )
     );
   }
@@ -551,11 +517,8 @@ function buildListingEmbed(listing, { imported = false } = {}) {
     .setTitle(displayIgn(listing))
     .addFields(
       { name: 'Category', value: category ? category.label : listing.category, inline: true },
-      { name: 'Budget', value: displayBudget(listing), inline: true },
+      { name: 'Paying', value: displayBudget(listing), inline: true },
     );
-  if (displayUsdPrice(listing.co) !== 'Offer') {
-    embed.addFields({ name: 'Best offer', value: displayUsdPrice(listing.co), inline: true });
-  }
   if (hasAvatar(listing)) embed.setThumbnail(avatarUrl(listing));
   for (const field of infoFieldsForCategory(listing.category)) {
     const value = listing.info ? String(listing.info[field.key] || '').trim() : '';
@@ -600,27 +563,6 @@ async function renderPreview(client, listingRow) {
   } catch (err) {
     // ticket message may have been deleted
   }
-}
-
-// DMs everyone watching a listing. Used for price changes and sales; failures
-// (closed DMs) are ignored so one blocked user cannot break the update.
-async function notifyWatchers(client, listingRow, text, { skipUserId = null } = {}) {
-  const listing = db.parseListing(listingRow);
-  if (!listing) return 0;
-  const ids = db.watcherIds(listing.id).filter((id) => id !== skipUserId);
-  if (!ids.length) return 0;
-  const link = listing.listing_channel_id
-    ? `\nhttps://discord.com/channels/${require('../config').GUILD_ID}/${listing.listing_channel_id}`
-    : '';
-  let sent = 0;
-  for (const id of ids) {
-    const user = await client.users.fetch(id).catch(() => null);
-    if (!user) continue;
-    const ok = await user.send({ content: `🔔 **${displayIgn(listing)}** - ${text}${link}` })
-      .then(() => true).catch(() => false);
-    if (ok) sent += 1;
-  }
-  return sent;
 }
 
 // Tells earlier bidders that their offer is no longer the highest, both by DM
@@ -721,8 +663,8 @@ module.exports = {
   buildCategorySelectRow, buildChannelNameModal,
   FIELDS, FIELD_SETS, infoFieldsForCategory, avatarUrl, displayIgn, normalizeUsdPrice, displayUsdPrice, usdToNumber, statSortValues, mineconYear, mineconChannelName,
   formatNameChanges, nameChangeCount, threeCharClass, listingSortKey, compareListings,
-  buildInfoModal, buildPriceModal, parseYesNo, parseBudgetRange, budgetInputValue, displayAmount,
+  buildInfoModal, buildPriceModal, parseYesNo, budgetInputValue, displayAmount,
   buildCapeSelectRows, buildEditSelectRow, buildSoldButtonRow, buildOfferAgainRow,
   buildListingContainer, buildListingEmbed, listingPayload, renderPreview, renderPublished, stripSoldButtons,
-  announceListingUpdate, priceChangeVerb, notifyWatchers, notifyOutbid,
+  announceListingUpdate, priceChangeVerb, notifyOutbid,
 };

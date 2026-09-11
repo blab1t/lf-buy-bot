@@ -148,9 +148,8 @@ async function placeOffer(interaction, listing, amount, choice, account = null) 
     `Seller: <@${interaction.user.id}>`,
   ];
   const title = `New offer on ${listings.displayIgn(listing)}`;
-  // The seller's card carries Offer another account from the start, so the
-  // control is always in the ticket instead of only appearing after review.
-  const againRows = [listings.buildOfferAgainRow(listing.id)];
+  // Exactly one "Offer another account" control per ticket: the reviewed offer
+  // card grows it once staff answer. Nothing else repeats it.
   let channel = target.channel;
   let item;
   if (target.ticket) {
@@ -158,10 +157,10 @@ async function placeOffer(interaction, listing, amount, choice, account = null) 
       ticketId: target.ticket.id, kind: 'offer', listingId: listing.id,
       offerAmount: amount, offerStatus: 'pending',
     });
-    await announceAddedItem(channel, title, lines, againRows);
+    await announceAddedItem(channel, title, lines);
   } else {
     const created = await createBuyTicket(interaction, listing, 'offer', title, lines, {
-      offerAmount: amount, offerStatus: 'pending', extraRows: againRows,
+      offerAmount: amount, offerStatus: 'pending',
     });
     channel = created.channel;
     item = created.item;
@@ -175,32 +174,10 @@ async function placeOffer(interaction, listing, amount, choice, account = null) 
   const budget = listings.usdToNumber(listing.bin);
   const offerValue = listings.usdToNumber(amount);
   const belowNote = budget !== null && offerValue !== null && offerValue > budget
-    ? ` Heads up: this is above the stated budget of **${listings.displayUsdPrice(listing.bin)}**, so staff may hold it.`
+    ? ` Heads up: this is above the **${listings.displayUsdPrice(listing.bin)}** the buyer pays, so staff may hold it.`
     : '';
   return interaction.editReply({
     content: `Your offer is waiting for staff approval: <#${channel.id}>.${belowNote}`,
-    components: [],
-  });
-}
-
-async function placeBin(interaction, listing, choice) {
-  const target = await resolveTarget(interaction, choice);
-  if (target.error) return interaction.editReply({ content: target.error, components: [] });
-  const lines = [
-    `Request: <#${listing.listing_channel_id}>`,
-    `Selling at the buyer's budget: **${listings.displayUsdPrice(listing.bin)}**`,
-    `Seller: <@${interaction.user.id}>`,
-  ];
-  const title = `Budget sale for ${listings.displayIgn(listing)}`;
-  let channel = target.channel;
-  if (target.ticket) {
-    db.addTicketItem({ ticketId: target.ticket.id, kind: 'bin', listingId: listing.id });
-    await announceAddedItem(channel, title, lines);
-  } else {
-    ({ channel } = await createBuyTicket(interaction, listing, 'bin', title, lines));
-  }
-  return interaction.editReply({
-    content: `${target.ticket ? 'Added to' : 'Ticket created:'} <#${channel.id}>`,
     components: [],
   });
 }
@@ -213,23 +190,6 @@ async function handle(interaction, parts) {
   if (action === 'soldno') {
     return interaction.update({ content: 'Cancelled - the listing is unchanged.', components: [] }).catch(() => {});
   }
-  // Watching works on any live listing and needs no permissions.
-  if (action === 'watch') {
-    if (!listing) return unavailable(interaction);
-    const watching = db.isWatching(listing.id, interaction.user.id);
-    if (watching) db.removeWatcher(listing.id, interaction.user.id);
-    else db.addWatcher(listing.id, interaction.user.id);
-    await interaction.reply({
-      content: watching
-        ? `🔔 You will no longer get updates about **${listings.displayIgn(listing)}**.`
-        : `🔔 You will be DMed when the budget or best offer of **${listings.displayIgn(listing)}** changes, or when it is fulfilled. Press again to stop.`,
-      flags: EPH,
-    }).catch(() => {});
-    // Refresh the card so the watcher count stays current.
-    await listings.renderPublished(interaction.client, db.getListing(listing.id)).catch(() => {});
-    return null;
-  }
-
   if (!listing || listing.status !== 'published') return unavailable(interaction);
 
   // Marking a request fulfilled pulls it off the board, so it asks first
@@ -267,7 +227,6 @@ async function handle(interaction, parts) {
     // older messages that still carry one.
     await listings.renderPreview(interaction.client, updated).catch(() => {});
     await listings.stripSoldButtons(interaction.client, updated).catch(() => {});
-    await listings.notifyWatchers(interaction.client, updated, 'has been marked **FULFILLED**.').catch(() => {});
 
     // The buyer is pinged first, then staff.
     const mentionParts = [];
@@ -490,8 +449,6 @@ async function handle(interaction, parts) {
       }
       // Announce the new C/O in the public listing channel.
       const fresh = db.getListing(listing.id);
-      await listings.announceListingUpdate(interaction.client, fresh, `Best offer: **${listings.displayUsdPrice(ticket.offer_amount)}**`);
-      await listings.notifyWatchers(interaction.client, fresh, `has a new offer of **${listings.displayUsdPrice(ticket.offer_amount)}**.`, { skipUserId: ticket.creator_id }).catch(() => {});
       // Every seller asking more is told they are no longer the front runner,
       // without naming the seller who now is.
       await listings.notifyOutbid(interaction.client, fresh, ticket.offer_amount, { excludeUserId: ticket.creator_id }).catch(() => {});
@@ -499,22 +456,6 @@ async function handle(interaction, parts) {
     return null;
   }
 
-  if (action === 'bin') {
-    const existing = db.findOpenTicketItem('bin', listing.id, interaction.user.id);
-    if (existing) return existingTicketReply(interaction, existing);
-    await interaction.deferReply({ flags: EPH });
-    const open = db.openTicketsForUser(interaction.user.id);
-    if (!open.length) return placeBin(interaction, listing, 'new');
-    return interaction.editReply({
-      content: `Where should your budget sale for **${listings.displayIgn(listing)}** go?`,
-      components: [tickets.ticketPickerRow(`ls:binwhere:${listing.id}`, interaction.guild, open)],
-    });
-  }
-
-  if (action === 'binwhere') {
-    await interaction.deferUpdate();
-    return placeBin(interaction, listing, interaction.values[0]);
-  }
 }
 
 module.exports = { handle };

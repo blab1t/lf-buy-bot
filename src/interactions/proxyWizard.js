@@ -310,17 +310,16 @@ async function handle(interaction, parts) {
     }
     let budget;
     try {
-      budget = listings.parseBudgetRange(data.raw.budget);
+      budget = listings.normalizeUsdPrice(data.raw.budget);
     } catch (err) {
       return interaction.reply({ content: err.message, components: [retryRow()], flags: EPH });
     }
     data.ign = data.raw.ign;
     data.uuid = null;
-    data.bin = budget.max;
+    data.bin = budget;
     // A best offer only exists once a seller actually offers something.
     data.co = 'Offer';
     data.basics = {
-      price_min: budget.min,
       description: data.raw.description.slice(0, 1000),
       amount: data.raw.amount.slice(0, 40),
     };
